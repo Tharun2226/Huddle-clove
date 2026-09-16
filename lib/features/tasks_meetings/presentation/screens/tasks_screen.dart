@@ -20,6 +20,7 @@ import '../widgets/meeting_card.dart';
 import '../widgets/meeting_sheet.dart';
 import '../widgets/task_card.dart';
 import '../widgets/task_filter_bar.dart';
+import '../widgets/task_import_excel.dart';
 import '../widgets/task_kanban.dart';
 
 enum TasksTab { tasks, meetings }
@@ -71,7 +72,12 @@ class TasksScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Work'),
         actions: [
-          if (tab == TasksTab.tasks)
+          if (tab == TasksTab.tasks) ...[
+            IconButton(
+              tooltip: 'Import tasks',
+              onPressed: () => showTaskImportSheet(context, ref),
+              icon: const Icon(Icons.file_upload_outlined),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: Insets.screen),
               child: _IconToggle(
@@ -83,6 +89,7 @@ class TasksScreen extends ConsumerWidget {
                 onChanged: (v) => ref.read(taskViewProvider.notifier).set(v),
               ),
             ),
+          ],
         ],
       ),
       floatingActionButton: switch (tab) {
@@ -102,6 +109,11 @@ class TasksScreen extends ConsumerWidget {
                             onTap: () => Navigator.pop(context, 'task'),
                           ),
                           ListTile(
+                            leading: const Icon(Icons.upload_file_rounded),
+                            title: const Text('Import tasks (Excel)'),
+                            onTap: () => Navigator.pop(context, 'import'),
+                          ),
+                          ListTile(
                             leading: const Icon(Icons.event_available_rounded),
                             title: const Text('New meeting'),
                             subtitle: const Text('One-time or repeating'),
@@ -114,6 +126,8 @@ class TasksScreen extends ConsumerWidget {
                   if (!context.mounted) return;
                   if (choice == 'task') {
                     context.push(Routes.newTask);
+                  } else if (choice == 'import') {
+                    await showTaskImportSheet(context, ref);
                   } else if (choice == 'meeting') {
                     ref.read(tasksTabProvider.notifier).set(TasksTab.meetings);
                     await showCreateMeetingSheet(context, ref);
@@ -123,7 +137,35 @@ class TasksScreen extends ConsumerWidget {
                 label: const Text('Create'),
               )
             : FloatingActionButton.extended(
-                onPressed: () => context.push(Routes.newTask),
+                onPressed: () async {
+                  final choice = await showModalBottomSheet<String>(
+                    context: context,
+                    showDragHandle: true,
+                    builder: (context) => SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.task_alt_rounded),
+                            title: const Text('New task'),
+                            onTap: () => Navigator.pop(context, 'task'),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.upload_file_rounded),
+                            title: const Text('Import tasks (Excel)'),
+                            onTap: () => Navigator.pop(context, 'import'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                  if (!context.mounted) return;
+                  if (choice == 'task') {
+                    context.push(Routes.newTask);
+                  } else if (choice == 'import') {
+                    await showTaskImportSheet(context, ref);
+                  }
+                },
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('New Task'),
               ),

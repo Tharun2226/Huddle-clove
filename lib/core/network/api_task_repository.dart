@@ -1,7 +1,52 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+
 import '../../features/tasks_meetings/domain/meeting.dart';
 import '../../features/tasks_meetings/domain/task.dart';
 import '../../shared/utils/date_codec.dart';
 import 'api_client.dart';
+
+class TaskImportFailure {
+  const TaskImportFailure({
+    required this.row,
+    required this.title,
+    required this.error,
+  });
+
+  final int row;
+  final String title;
+  final String error;
+
+  factory TaskImportFailure.fromJson(Map<String, dynamic> json) =>
+      TaskImportFailure(
+        row: (json['row'] as num?)?.toInt() ?? 0,
+        title: (json['title'] as String?) ?? '',
+        error: (json['error'] as String?) ?? 'Unknown error',
+      );
+}
+
+class TaskImportResult {
+  const TaskImportResult({
+    required this.createdCount,
+    required this.failedCount,
+    required this.failed,
+  });
+
+  final int createdCount;
+  final int failedCount;
+  final List<TaskImportFailure> failed;
+
+  factory TaskImportResult.fromJson(Map<String, dynamic> json) =>
+      TaskImportResult(
+        createdCount: (json['createdCount'] as num?)?.toInt() ?? 0,
+        failedCount: (json['failedCount'] as num?)?.toInt() ?? 0,
+        failed: [
+          for (final row in (json['failed'] as List<dynamic>? ?? const []))
+            if (row is Map<String, dynamic>) TaskImportFailure.fromJson(row),
+        ],
+      );
+}
 
 class TaskMappers {
   static TaskStatus statusFrom(String slug) => switch (slug) {
@@ -165,6 +210,28 @@ class ApiTaskRepository {
       },
     );
     return TaskMappers.taskFromJson(res.data!);
+  }
+
+  Future<TaskImportResult> importTasks(List<Map<String, dynamic>> rows) async {
+    final res = await _client.dio.post<Map<String, dynamic>>(
+      '/tasks/import',
+      data: {'rows': rows},
+    );
+    final data = res.data ?? const <String, dynamic>{};
+    return TaskImportResult.fromJson(data);
+  }
+
+  Future<({Uint8List bytes, String fileName})> downloadImportTemplate() async {
+    final res = await _client.dio.get<List<int>>(
+      '/tasks/import/template',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final raw = res.data ?? const <int>[];
+    final bytes = Uint8List.fromList(raw);
+    final disposition = res.headers.value('content-disposition') ?? '';
+    final match = RegExp(r'filename="?([^"]+)"?').firstMatch(disposition);
+    final fileName = match?.group(1) ?? 'tasks import sheet.xlsx';
+    return (bytes: bytes, fileName: fileName);
   }
 
   Future<Task> updateTask(Task task) async {

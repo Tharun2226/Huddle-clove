@@ -17,6 +17,7 @@ import '../../tasks_meetings/presentation/providers/task_providers.dart';
 import '../../tasks_meetings/presentation/widgets/meeting_card.dart';
 import '../../tasks_meetings/presentation/widgets/meeting_sheet.dart';
 import '../../tasks_meetings/presentation/widgets/task_card.dart';
+import '../../tasks_meetings/presentation/widgets/task_import_excel.dart';
 import 'widgets/stat_tile.dart';
 import 'widgets/today_share_sheet.dart';
 
@@ -346,9 +347,20 @@ class _Header extends ConsumerWidget {
             ),
           ),
           IconButton(
+            tooltip: 'Import tasks',
+            onPressed: () => showTaskImportSheet(context, ref),
+            icon: Icon(
+              Icons.upload_file_rounded,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          IconButton(
             tooltip: 'Share day',
             onPressed: () => showTodayShareSheet(context, ref),
-            icon: Icon(Icons.share_rounded, color: palette.neutral),
+            icon: Icon(
+              Icons.share_rounded,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
           const NotificationBell(),
           const SizedBox(width: Insets.xs),
