@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -179,7 +183,7 @@ DateTime _excelSerialToDate(double serial) {
 }
 
 List<TaskImportRowPayload> parseTaskImportBytes(Uint8List bytes) {
-  final excel = Excel.decodeBytes(bytes);
+  final excel = Excel.decodeBytes(_sanitizeExcelBytes(bytes));
   final sheet = excel.tables[_sheetName] ??
       excel.tables.values.cast<Sheet?>().firstWhere(
             (s) => s != null,
@@ -265,6 +269,35 @@ String _normalizeHeader(String raw) {
 
 String _stripDropdownMark(String raw) {
   return raw.trim().replaceAll(RegExp(r'\s*[▼▾]\s*$'), '').trim();
+}
+
+/// Flutter `excel` throws if styles.xml lists custom numFmtId < 164.
+Uint8List _sanitizeExcelBytes(Uint8List bytes) {
+  try {
+    final decoded = ZipDecoder().decodeBytes(bytes);
+    final out = Archive();
+    for (final file in decoded) {
+      if (!file.isFile) continue;
+      if (file.name == 'xl/styles.xml') {
+        var xml = utf8.decode(file.content as List<int>);
+        xml = xml.replaceAll(
+          RegExp(r'<numFmts\b[^>]*>[\s\S]*?</numFmts>', caseSensitive: false),
+          '',
+        );
+        final encoded = utf8.encode(xml);
+        out.addFile(ArchiveFile(file.name, encoded.length, encoded));
+      } else {
+        out.addFile(
+          ArchiveFile(file.name, file.size, file.content),
+        );
+      }
+    }
+    final encoded = ZipEncoder().encode(out);
+    if (encoded == null) return bytes;
+    return Uint8List.fromList(encoded);
+  } catch (_) {
+    return bytes;
+  }
 }
 
 Future<void> showTaskImportSheet(BuildContext context, WidgetRef ref) async {
