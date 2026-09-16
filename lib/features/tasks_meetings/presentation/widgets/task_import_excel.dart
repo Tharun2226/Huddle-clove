@@ -3,7 +3,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/config/org_config.dart';
 import '../../../../core/di/providers.dart';
@@ -59,7 +58,7 @@ class TaskImportRowPayload {
 }
 
 /// Downloadable template from API (includes Priority/Status dropdowns).
-Future<void> shareTaskImportTemplate(WidgetRef ref) async {
+Future<void> downloadTaskImportTemplate(WidgetRef ref) async {
   final api = ApiTaskRepository(ref.read(apiClientProvider));
   final template = await api.downloadImportTemplate();
   const mime =
@@ -74,19 +73,18 @@ Future<void> shareTaskImportTemplate(WidgetRef ref) async {
     return;
   }
 
-  await SharePlus.instance.share(
-    ShareParams(
-      files: [
-        XFile.fromData(
-          template.bytes,
-          mimeType: mime,
-          name: template.fileName,
-        ),
-      ],
-      fileNameOverrides: [template.fileName],
-      subject: 'Huddle task import template',
-    ),
+  // Mobile/desktop: system Save dialog (not the Share sheet).
+  final saved = await FilePicker.saveFile(
+    dialogTitle: 'Save tasks import sheet',
+    fileName: template.fileName,
+    bytes: template.bytes,
+    mimeType: mime,
+    type: FileType.custom,
+    allowedExtensions: const ['xlsx'],
   );
+  if (saved == null) {
+    throw StateError('Save cancelled');
+  }
 }
 
 String _cellToString(Data? data) {
@@ -285,8 +283,15 @@ Future<void> showTaskImportSheet(BuildContext context, WidgetRef ref) async {
               Navigator.pop(ctx);
               final messenger = AppFeedback.messengerOf(context);
               try {
-                await shareTaskImportTemplate(ref);
+                await downloadTaskImportTemplate(ref);
+                AppFeedback.success(messenger, 'Template saved');
               } catch (e) {
+                final msg = '$e';
+                if (msg.contains('Save cancelled') ||
+                    msg.contains('cancelled') ||
+                    msg.contains('canceled')) {
+                  return;
+                }
                 AppFeedback.error(messenger, 'Could not download template: $e');
               }
             },

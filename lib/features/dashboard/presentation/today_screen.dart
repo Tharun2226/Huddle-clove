@@ -121,18 +121,30 @@ class TodayScreen extends ConsumerWidget {
                         ),
                       ),
                     ] else ...[
-                      AgendaDateButton(
-                        date: agendaDate,
-                        onPick: () => pickAgendaDate(
-                          context: context,
-                          initialDate: agendaDate,
-                          onPicked: (d) => ref
-                              .read(todayAgendaDateProvider.notifier)
-                              .set(d),
-                        ),
-                        onToday: () => ref
-                            .read(todayAgendaDateProvider.notifier)
-                            .goToday(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AgendaDateButton(
+                              date: agendaDate,
+                              onPick: () => pickAgendaDate(
+                                context: context,
+                                initialDate: agendaDate,
+                                onPicked: (d) => ref
+                                    .read(todayAgendaDateProvider.notifier)
+                                    .set(d),
+                              ),
+                              onToday: () => ref
+                                  .read(todayAgendaDateProvider.notifier)
+                                  .goToday(),
+                            ),
+                          ),
+                          const SizedBox(width: Insets.xs),
+                          IconButton.filledTonal(
+                            tooltip: 'Import tasks',
+                            onPressed: () => showTaskImportSheet(context, ref),
+                            icon: const Icon(Icons.upload_file_rounded),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: Insets.lg),
                       _MeetingsTodaySection(
@@ -344,14 +356,6 @@ class _Header extends ConsumerWidget {
                   style: context.text.headlineSmall,
                 ),
               ],
-            ),
-          ),
-          IconButton(
-            tooltip: 'Import tasks',
-            onPressed: () => showTaskImportSheet(context, ref),
-            icon: Icon(
-              Icons.upload_file_rounded,
-              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           IconButton(

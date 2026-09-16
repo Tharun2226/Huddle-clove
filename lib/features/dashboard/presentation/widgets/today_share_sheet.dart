@@ -6,7 +6,6 @@ import '../../../../core/config/org_config.dart';
 import '../../../../shared/theme/app_tokens.dart';
 import '../../../../shared/widgets/agenda_date_picker.dart';
 import '../../../tasks_meetings/presentation/providers/task_providers.dart';
-import '../../../tasks_meetings/presentation/widgets/task_import_excel.dart';
 import 'today_share_export.dart';
 
 Future<void> showTodayShareSheet(BuildContext context, WidgetRef ref) {
@@ -91,26 +90,6 @@ class _TodayShareSheetState extends ConsumerState<_TodayShareSheet> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: context.colors.primary.withValues(alpha: 0.12),
-                  child: Icon(
-                    Icons.upload_file_rounded,
-                    color: context.colors.primary,
-                  ),
-                ),
-                title: const Text('Import tasks'),
-                subtitle: Text(
-                  'Download template or upload an Excel sheet',
-                  style: context.text.bodySmall?.copyWith(color: palette.neutral),
-                ),
-                onTap: () async {
-                  Navigator.of(context).pop();
-                  await showTaskImportSheet(context, ref);
-                },
-              ),
-              const Divider(height: 1),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(

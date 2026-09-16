@@ -109,11 +109,6 @@ class TasksScreen extends ConsumerWidget {
                             onTap: () => Navigator.pop(context, 'task'),
                           ),
                           ListTile(
-                            leading: const Icon(Icons.upload_file_rounded),
-                            title: const Text('Import tasks (Excel)'),
-                            onTap: () => Navigator.pop(context, 'import'),
-                          ),
-                          ListTile(
                             leading: const Icon(Icons.event_available_rounded),
                             title: const Text('New meeting'),
                             subtitle: const Text('One-time or repeating'),
@@ -126,8 +121,6 @@ class TasksScreen extends ConsumerWidget {
                   if (!context.mounted) return;
                   if (choice == 'task') {
                     context.push(Routes.newTask);
-                  } else if (choice == 'import') {
-                    await showTaskImportSheet(context, ref);
                   } else if (choice == 'meeting') {
                     ref.read(tasksTabProvider.notifier).set(TasksTab.meetings);
                     await showCreateMeetingSheet(context, ref);
@@ -137,35 +130,7 @@ class TasksScreen extends ConsumerWidget {
                 label: const Text('Create'),
               )
             : FloatingActionButton.extended(
-                onPressed: () async {
-                  final choice = await showModalBottomSheet<String>(
-                    context: context,
-                    showDragHandle: true,
-                    builder: (context) => SafeArea(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.task_alt_rounded),
-                            title: const Text('New task'),
-                            onTap: () => Navigator.pop(context, 'task'),
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.upload_file_rounded),
-                            title: const Text('Import tasks (Excel)'),
-                            onTap: () => Navigator.pop(context, 'import'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                  if (!context.mounted) return;
-                  if (choice == 'task') {
-                    context.push(Routes.newTask);
-                  } else if (choice == 'import') {
-                    await showTaskImportSheet(context, ref);
-                  }
-                },
+                onPressed: () => context.push(Routes.newTask),
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('New Task'),
               ),
