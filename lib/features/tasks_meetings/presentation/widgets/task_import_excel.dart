@@ -16,49 +16,12 @@ import '../../../../shared/utils/date_codec.dart';
 import '../../../../shared/utils/formatters.dart';
 import '../providers/task_providers.dart';
 import 'download_bytes.dart';
+import 'task_import_models.dart';
+import 'task_schedule_paste.dart';
+
+export 'task_import_models.dart';
 
 const _sheetName = 'Tasks';
-
-class TaskImportRowPayload {
-  const TaskImportRowPayload({
-    required this.title,
-    required this.dueDate,
-    this.description = '',
-    this.assignees = '',
-    this.priority = '',
-    this.status = '',
-  });
-
-  final String title;
-  final String description;
-  final DateTime dueDate;
-  final String assignees;
-  final String priority;
-  final String status;
-
-  TaskImportRowPayload copyWith({
-    String? priority,
-    String? status,
-  }) {
-    return TaskImportRowPayload(
-      title: title,
-      description: description,
-      dueDate: dueDate,
-      assignees: assignees,
-      priority: priority ?? this.priority,
-      status: status ?? this.status,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'title': title,
-        'description': description,
-        'dueDate': DateCodec.encodeInstant(dueDate),
-        if (assignees.trim().isNotEmpty) 'assignees': assignees.trim(),
-        if (priority.trim().isNotEmpty) 'priority': priority.trim(),
-        if (status.trim().isNotEmpty) 'status': status.trim(),
-      };
-}
 
 /// Downloadable template from API (includes Priority/Status dropdowns).
 Future<void> downloadTaskImportTemplate(WidgetRef ref) async {
@@ -308,6 +271,17 @@ Future<void> showTaskImportSheet(BuildContext context, WidgetRef ref) async {
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
+            leading: const Icon(Icons.content_paste_go_rounded),
+            title: const Text('Paste schedule'),
+            subtitle: const Text(
+              'One task per time line · Others assignee from heading',
+            ),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _importTasksFromSchedulePaste(context, ref);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.download_rounded),
             title: const Text('Download Excel template'),
             subtitle: const Text('Sample row only — set Priority/Status in app'),
@@ -343,6 +317,15 @@ Future<void> showTaskImportSheet(BuildContext context, WidgetRef ref) async {
   );
 }
 
+Future<void> _importTasksFromSchedulePaste(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final rows = await showSchedulePasteDialog(context);
+  if (rows == null || rows.isEmpty || !context.mounted) return;
+  await _reviewAndImportRows(context, ref, rows);
+}
+
 Future<void> _importTasksFromPicker(BuildContext context, WidgetRef ref) async {
   final messenger = AppFeedback.messengerOf(context);
   final files = await FilePicker.pickFiles(
@@ -369,6 +352,15 @@ Future<void> _importTasksFromPicker(BuildContext context, WidgetRef ref) async {
   }
 
   if (!context.mounted) return;
+  await _reviewAndImportRows(context, ref, rows);
+}
+
+Future<void> _reviewAndImportRows(
+  BuildContext context,
+  WidgetRef ref,
+  List<TaskImportRowPayload> rows,
+) async {
+  final messenger = AppFeedback.messengerOf(context);
   final config = ref.read(orgConfigProvider);
   final reviewed = await showModalBottomSheet<List<TaskImportRowPayload>>(
     context: context,
@@ -540,6 +532,20 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                             '${Fmt.friendlyDate(row.dueDate)}, ${Fmt.time(row.dueDate)}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
+                          if (row.assignees.trim().isNotEmpty) ...[
+                            const SizedBox(height: Insets.xs),
+                            Text(
+                              'Others: ${row.assignees.trim()}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
                           const SizedBox(height: Insets.md),
                           Row(
                             children: [
