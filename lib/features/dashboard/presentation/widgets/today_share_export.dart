@@ -1,3 +1,4 @@
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -36,7 +37,7 @@ class TodayShareData {
   final Meeting? nextMeeting;
   final bool showTags;
 
-  /// userId → display name for resolving attendees / assignees.
+  /// userId â†’ display name for resolving attendees / assignees.
   final Map<String, String> peopleNames;
 
   String get fileStem {
@@ -46,8 +47,13 @@ class TodayShareData {
     return 'huddle-today-$y$m$d';
   }
 
-  String get shareSubject =>
-      '${Fmt.weekdayLong(date)} schedules and meetings';
+  String get shareSubject {
+    final name = userName.trim();
+    if (name.isEmpty) {
+      return '${Fmt.weekdayLong(date)} schedules and meetings';
+    }
+    return 'Daily schedule — Time & Meeting Details of $name';
+  }
 
   String personName(String id) => peopleNames[id] ?? id;
 
@@ -302,6 +308,15 @@ Future<Uint8List> _captureTodayPng(
   BuildContext context,
   TodayShareData data,
 ) async {
+  // Precache logos so off-screen capture doesn't miss APGOV / Amaravati.
+  await Future.wait([
+    precacheImage(const AssetImage(_TodaySharePoster._logoLeft), context),
+    precacheImage(const AssetImage(_TodaySharePoster._logoRight), context),
+  ]);
+  if (!context.mounted) {
+    throw StateError('Could not render Today image');
+  }
+
   final key = GlobalKey();
   final overlay = Overlay.of(context);
   late final OverlayEntry entry;
@@ -314,7 +329,8 @@ Future<Uint8List> _captureTodayPng(
         child: Material(
           type: MaterialType.transparency,
           child: SizedBox(
-            width: 980,
+            width: _a4WidthPx,
+            height: _a4HeightPx,
             child: RepaintBoundary(
               key: key,
               child: _TodaySharePoster(data: data),
@@ -326,10 +342,9 @@ Future<Uint8List> _captureTodayPng(
   );
 
   overlay.insert(entry);
-  // Give fonts / layout time to settle so the capture is sharp.
-  await Future<void>.delayed(const Duration(milliseconds: 80));
+  await Future<void>.delayed(const Duration(milliseconds: 100));
   await WidgetsBinding.instance.endOfFrame;
-  await Future<void>.delayed(const Duration(milliseconds: 120));
+  await Future<void>.delayed(const Duration(milliseconds: 160));
   await WidgetsBinding.instance.endOfFrame;
 
   try {
@@ -338,107 +353,117 @@ Future<Uint8List> _captureTodayPng(
     if (boundary == null) {
       throw StateError('Could not render Today image');
     }
-    final image = await boundary.toImage(pixelRatio: 3);
+    final image = await boundary.toImage(pixelRatio: 1);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
       throw StateError('Could not encode PNG');
     }
-    return byteData.buffer.asUint8List();
+    return _pngWithPrintDpi(
+      byteData.buffer.asUint8List(),
+      dpi: _a4Dpi,
+    );
   } finally {
     entry.remove();
   }
 }
 
-/// Formal schedule-table poster for the PNG share.
-/// Meetings on top, tasks below — inspired by a day agenda grid.
+/// A4 portrait at 200 DPI (210×297 mm) so the shared PNG prints at paper size.
+const _a4Dpi = 200;
+const _a4WidthPx = 1654.0;
+const _a4HeightPx = 2339.0;
+const _a4MarginPx = 94.0;
+
+/// Stamp PNG pHYs so printers treat the pixels as [_a4Dpi] dots per inch.
+Uint8List _pngWithPrintDpi(Uint8List png, {required int dpi}) {
+  if (png.length < 33) return png;
+  final ppm = (dpi / 0.0254).round();
+  final data = ByteData(9)
+    ..setUint32(0, ppm, Endian.big)
+    ..setUint32(4, ppm, Endian.big)
+    ..setUint8(8, 1);
+  final type = ascii.encode('pHYs');
+  final crcInput = Uint8List(4 + 9)
+    ..setRange(0, 4, type)
+    ..setRange(4, 13, data.buffer.asUint8List());
+  final crc = _pngCrc32(crcInput);
+  final chunk = BytesBuilder()
+    ..add((ByteData(4)..setUint32(0, 9, Endian.big)).buffer.asUint8List())
+    ..add(type)
+    ..add(data.buffer.asUint8List())
+    ..add((ByteData(4)..setUint32(0, crc, Endian.big)).buffer.asUint8List());
+
+  final view = ByteData.sublistView(png);
+  final ihdrLen = view.getUint32(8, Endian.big);
+  final insertAt = 12 + 4 + ihdrLen + 4;
+  if (insertAt >= png.length) return png;
+  return Uint8List.fromList([
+    ...png.sublist(0, insertAt),
+    ...chunk.toBytes(),
+    ...png.sublist(insertAt),
+  ]);
+}
+
+int _pngCrc32(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final b in bytes) {
+    crc ^= b;
+    for (var i = 0; i < 8; i++) {
+      final bit = crc & 1;
+      crc >>= 1;
+      if (bit != 0) crc ^= 0xEDB88320;
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
+}
+
+/// Official daily-schedule poster (APCRDA style) — logos + Time / Meeting Details.
+/// Fixed A4 page, no calendars.
 class _TodaySharePoster extends StatelessWidget {
   const _TodaySharePoster({required this.data});
 
   final TodayShareData data;
 
-  // Formal schedule palette — navy + soft priority tints, dark readable text.
-  static const _ink = Color(0xFF0F172A);
-  static const _border = Color(0xFFCBD5E1);
-  static const _headerBg = Color(0xFFE8EEF6);
-  static const _headerInk = Color(0xFF1E3A5F);
-  static const _title = Color(0xFF1E3A5F);
-  static const _sectionBg = Color(0xFFF8FAFC);
-  static const _sideBg = Color(0xFFF1F5F9);
-  static const _liveBg = Color(0xFFECFDF5);
-  static const _liveAccent = Color(0xFF059669);
-  static const _pastBg = Color(0xFFF8FAFC);
-  static const _pastAccent = Color(0xFF94A3B8);
-  static const _meetingAccent = Color(0xFF3B82F6);
-  static const _overdueBg = Color(0xFFFEF2F2);
-  static const _overdueAccent = Color(0xFFDC2626);
-  static const _urgentBg = Color(0xFFFEF2F2);
-  static const _urgentAccent = Color(0xFFE11D48);
-  static const _highBg = Color(0xFFFFF7ED);
-  static const _highAccent = Color(0xFFEA580C);
-  static const _normalBg = Color(0xFFFFFFFF);
-  static const _normalAccent = Color(0xFF3B82F6);
-  static const _lowBg = Color(0xFFF8FAFC);
-  static const _lowAccent = Color(0xFF94A3B8);
+  static const _ink = Color(0xFF111111);
+  static const _titleRed = Color(0xFFC41E3A);
+  static const _border = Color(0xFF1A1A1A);
+  static const _headerBg = Color(0xFFD9D9D9);
+  static const _logoLeft = 'assets/APGOV.png';
+  static const _logoRight = 'assets/amaravathi.png';
 
-  Color _priorityBackground(TaskPriority priority, {required bool overdue}) {
-    if (overdue) return _overdueBg;
-    return switch (priority) {
-      TaskPriority.urgent => _urgentBg,
-      TaskPriority.high => _highBg,
-      TaskPriority.normal => _normalBg,
-      TaskPriority.low => _lowBg,
-    };
-  }
+  List<({DateTime at, String title})> get _rows {
+    final rows = <({DateTime at, String title})>[];
+    final seenTaskIds = <String>{};
 
-  Color _priorityAccent(TaskPriority priority, {required bool overdue}) {
-    if (overdue) return _overdueAccent;
-    return switch (priority) {
-      TaskPriority.urgent => _urgentAccent,
-      TaskPriority.high => _highAccent,
-      TaskPriority.normal => _normalAccent,
-      TaskPriority.low => _lowAccent,
-    };
-  }
-
-  List<Meeting> get _meetingsByTime {
-    final list = [...data.meetings];
-    list.sort((a, b) {
-      int rank(Meeting m) {
-        if (m.isLive) return 0;
-        if (!m.isPast) return 1;
-        return 2;
-      }
-
-      final byRank = rank(a).compareTo(rank(b));
-      if (byRank != 0) return byRank;
-      return a.start.compareTo(b.start);
-    });
-    return list;
-  }
-
-  List<Task> get _tasksByTime {
-    int byDue(Task a, Task b) {
-      final ad = a.dueDate;
-      final bd = b.dueDate;
-      if (ad == null && bd == null) return a.title.compareTo(b.title);
-      if (ad == null) return 1;
-      if (bd == null) return -1;
-      final cmp = ad.compareTo(bd);
-      return cmp != 0 ? cmp : a.title.compareTo(b.title);
+    void addTask(Task task) {
+      final due = task.dueDate;
+      if (due == null) return;
+      if (!seenTaskIds.add(task.id)) return;
+      final title = task.title.trim();
+      if (title.isEmpty) return;
+      rows.add((at: due, title: title));
     }
 
-    // Due today first, then overdue at the bottom of the tasks table.
-    return [
-      ...[...data.dueToday]..sort(byDue),
-      ...[...data.overdue]..sort(byDue),
-    ];
+    // Meetings for the selected agenda day (past / live / upcoming).
+    for (final m in data.meetings) {
+      final title = m.title.trim();
+      if (title.isEmpty) continue;
+      rows.add((at: m.start, title: title));
+    }
+
+    // Due on selected date only — including completed (no other-day overdue).
+    for (final t in data.dueToday) {
+      addTask(t);
+    }
+
+    rows.sort((a, b) => a.at.compareTo(b.at));
+    return rows;
   }
 
-  String _dateStamp(DateTime dt) {
+  String _scheduleDateLine(DateTime dt) {
+    final weekday = DateFormat('EEEE').format(dt);
     final d = dt.day.toString().padLeft(2, '0');
     final m = dt.month.toString().padLeft(2, '0');
-    final weekday = DateFormat('EEEE').format(dt);
-    return '$d.$m.${dt.year}\n($weekday)';
+    return 'DAILY SCHEDULE ($weekday— $d.$m.${dt.year})';
   }
 
   String _clock(DateTime dt) {
@@ -446,497 +471,190 @@ class _TodaySharePoster extends StatelessWidget {
     final minute = dt.minute.toString().padLeft(2, '0');
     final h12 = hour % 12 == 0 ? 12 : hour % 12;
     final ampm = hour >= 12 ? 'PM' : 'AM';
-    return '${h12.toString().padLeft(2, '0')}.$minute $ampm';
-  }
-
-  String _meetingDetails(Meeting m, {required bool compact}) {
-    final noteLimit = compact ? 120 : 280;
-    final lines = <String>[m.title.trim()];
-
-    final place = m.location.trim();
-    if (place.isNotEmpty) {
-      lines.add('Location: $place');
-    } else if (m.isOnline) {
-      lines.add('Location: Online');
-    }
-
-    if (m.isOnline && m.link.trim().isNotEmpty) {
-      lines.add('Link: ${_clip(m.link.trim(), compact ? 90 : 160)}');
-    }
-
-    final notes = m.notes.trim();
-    if (notes.isNotEmpty) {
-      lines.add('Notes: ${_clip(notes, noteLimit)}');
-    }
-
-    if (m.recurrence != MeetingRecurrence.none) {
-      lines.add('Repeats: ${m.recurrenceSummary}');
-    }
-
-    return lines.join('\n');
-  }
-
-  String _taskDetails(Task t, {required bool overdue, required bool compact}) {
-    final descLimit = compact ? 120 : 280;
-    final lines = <String>[t.title.trim()];
-
-    final meta = <String>[
-      if (overdue) 'Overdue',
-      t.status.label,
-      t.priority.label,
-    ];
-    lines.add(meta.join(' · '));
-
-    final description = t.description.trim();
-    if (description.isNotEmpty) {
-      lines.add('Description: ${_clip(description, descLimit)}');
-    }
-
-    if (t.tags.isNotEmpty && data.showTags) {
-      lines.add('Tags: ${data.taskTags(t)}');
-    }
-
-    return lines.join('\n');
-  }
-
-  String _clip(String value, int max) {
-    final oneLine = value.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (oneLine.length <= max) return oneLine;
-    return '${oneLine.substring(0, max - 1)}…';
-  }
-
-  String _people(String value, {required bool compact}) {
-    if (!compact) return value;
-    return _clip(value, 72);
+    return '${h12.toString().padLeft(2, '0')}:$minute $ampm';
   }
 
   @override
   Widget build(BuildContext context) {
-    final meetings = _meetingsByTime;
-    final tasks = _tasksByTime;
-    final overdueIds = {for (final t in data.overdue) t.id};
-    final dateLabel = _dateStamp(data.date);
-    final hasMeetings = meetings.isNotEmpty;
-    final hasTasks = tasks.isNotEmpty;
-    final totalRows = meetings.length + tasks.length;
-    // 10+10 (or similar) → denser rows so the PNG stays readable and tall.
-    final compact = totalRows >= 8;
+    final rows = _rows;
+    final compact = rows.length >= 10;
 
-    return ColoredBox(
-      color: Colors.white,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(28, 28, 28, compact ? 24 : 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Schedule of ${data.userName}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _title,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                height: 1.25,
-              ),
-            ),
-            const SizedBox(height: 22),
-
-            if (!hasMeetings && !hasTasks)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 36,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: _border, width: 1),
-                  color: _sectionBg,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'No meetings or tasks scheduled for today.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.4,
+    final content = Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: _border, width: 1.6),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          padding: EdgeInsets.fromLTRB(18, 16, 18, compact ? 16 : 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Image.asset(
+                    _logoLeft,
+                    width: 140,
+                    height: 140,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    gaplessPlayback: true,
                   ),
-                ),
-              )
-            else ...[
-              if (hasMeetings)
-                _ScheduleTable(
-                  dateLabel: dateLabel,
-                  compact: compact,
-                  headers: const [
-                    'Day & Date',
-                    'Time',
-                    'Details',
-                    'Participants Details',
-                  ],
-                  rows: [
-                    for (var i = 0; i < meetings.length; i++)
-                      _ScheduleRowData(
-                        time:
-                            '${_clock(meetings[i].start)} – ${_clock(meetings[i].end)}',
-                        details: _meetingDetails(
-                          meetings[i],
-                          compact: compact,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          data.userName.trim().isEmpty
+                              ? 'COMMISSIONER APCRDA'
+                              : data.userName.trim().toUpperCase(),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: _titleRed,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w800,
+                            height: 1.15,
+                            letterSpacing: 0.4,
+                          ),
                         ),
-                        participants: _people(
-                          data.meetingAttendees(meetings[i]),
-                          compact: compact,
+                        const SizedBox(height: 4),
+                        Text(
+                          _scheduleDateLine(data.date),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: _titleRed,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
                         ),
-                        background: meetings[i].isLive
-                            ? _liveBg
-                            : meetings[i].isPast
-                                ? _pastBg
-                                : Colors.white,
-                        accent: meetings[i].isLive
-                            ? _liveAccent
-                            : meetings[i].isPast
-                                ? _pastAccent
-                                : _meetingAccent,
-                      ),
-                  ],
-                ),
-              if (hasMeetings && hasTasks) const SizedBox(height: 16),
-              if (hasTasks)
-                _ScheduleTable(
-                  dateLabel: dateLabel,
-                  compact: compact,
-                  headers: const [
-                    'Day & Date',
-                    'Time',
-                    'Details',
-                    'Participants Details',
-                  ],
-                  rows: [
-                    for (var i = 0; i < tasks.length; i++)
-                      _ScheduleRowData(
-                        time: tasks[i].dueDate == null
-                            ? '—'
-                            : _clock(tasks[i].dueDate!),
-                        details: _taskDetails(
-                          tasks[i],
-                          overdue: overdueIds.contains(tasks[i].id),
-                          compact: compact,
-                        ),
-                        participants: _people(
-                          data.taskAssignees(tasks[i]),
-                          compact: compact,
-                        ),
-                        background: _priorityBackground(
-                          tasks[i].priority,
-                          overdue: overdueIds.contains(tasks[i].id),
-                        ),
-                        accent: _priorityAccent(
-                          tasks[i].priority,
-                          overdue: overdueIds.contains(tasks[i].id),
-                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Image.asset(
+                    _logoRight,
+                    width: 180,
+                    height: 140,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    gaplessPlayback: true,
+                  ),
+                ],
+              ),
+              SizedBox(height: compact ? 12 : 16),
+              if (rows.isEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 28,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _border, width: 1.2),
+                  ),
+                  child: const Text(
+                    'No meetings or tasks scheduled for today.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              else
+                Table(
+                  border: TableBorder.all(color: _border, width: 1.2),
+                  columnWidths: const {
+                    0: FlexColumnWidth(1.15),
+                    1: FlexColumnWidth(3.6),
+                  },
+                  defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                  children: [
+                    TableRow(
+                      decoration: const BoxDecoration(color: _headerBg),
+                      children: [
+                        _headerCell('Time', compact: compact),
+                        _headerCell('Meeting Details', compact: compact),
+                      ],
+                    ),
+                    for (final row in rows)
+                      TableRow(
+                        children: [
+                          _bodyCell(
+                            _clock(row.at),
+                            compact: compact,
+                            bold: true,
+                          ),
+                          _bodyCell(row.title, compact: compact),
+                        ],
                       ),
                   ],
                 ),
             ],
-          ],
+          ),
+        );
+
+    final contentWidth = _a4WidthPx - (_a4MarginPx * 2);
+    return ColoredBox(
+      color: Colors.white,
+      child: SizedBox(
+        width: _a4WidthPx,
+        height: _a4HeightPx,
+        child: Padding(
+          padding: const EdgeInsets.all(_a4MarginPx),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: contentWidth,
+                child: content,
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
-}
 
-class _ScheduleRowData {
-  const _ScheduleRowData({
-    required this.time,
-    required this.details,
-    required this.participants,
-    this.background = Colors.white,
-    this.accent,
-  });
-
-  final String time;
-  final String details;
-  final String participants;
-  final Color background;
-  final Color? accent;
-}
-
-class _ScheduleTable extends StatelessWidget {
-  const _ScheduleTable({
-    required this.dateLabel,
-    required this.headers,
-    required this.rows,
-    this.compact = false,
-  });
-
-  final String dateLabel;
-  final List<String> headers;
-  final List<_ScheduleRowData> rows;
-  final bool compact;
-
-  static const _borderSide = BorderSide(
-    color: _TodaySharePoster._border,
-    width: 1,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: _TodaySharePoster._border, width: 1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          _HeaderRow(headers: headers, compact: compact),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _SideCell(
-                  width: compact ? 102 : 118,
-                  compact: compact,
-                  child: Text(
-                    dateLabel,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _TodaySharePoster._headerInk,
-                      fontSize: compact ? 11 : 12,
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < rows.length; i++)
-                        _DataRow(
-                          row: rows[i],
-                          compact: compact,
-                          showBottomBorder: i < rows.length - 1,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeaderRow extends StatelessWidget {
-  const _HeaderRow({required this.headers, this.compact = false});
-
-  final List<String> headers;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: _TodaySharePoster._headerBg,
-        border: Border(bottom: _ScheduleTable._borderSide),
-      ),
-      child: Row(
-        children: [
-          _HeaderCell(
-            text: headers[0],
-            width: compact ? 102 : 118,
-            compact: compact,
-          ),
-          Expanded(
-            flex: 18,
-            child: _HeaderCell(text: headers[1], compact: compact),
-          ),
-          Expanded(
-            flex: 42,
-            child: _HeaderCell(text: headers[2], compact: compact),
-          ),
-          Expanded(
-            flex: 34,
-            child: _HeaderCell(
-              text: headers[3],
-              last: true,
-              compact: compact,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeaderCell extends StatelessWidget {
-  const _HeaderCell({
-    required this.text,
-    this.width,
-    this.last = false,
-    this.compact = false,
-  });
-
-  final String text;
-  final double? width;
-  final bool last;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final child = Container(
-      width: width,
+  Widget _headerCell(String text, {required bool compact}) {
+    return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 6 : 8,
-        vertical: compact ? 7 : 10,
-      ),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        border: last
-            ? null
-            : const Border(right: _ScheduleTable._borderSide),
+        horizontal: 16,
+        vertical: compact ? 10 : 14,
       ),
       child: Text(
         text,
-        textAlign: TextAlign.center,
+        textAlign: TextAlign.left,
         style: TextStyle(
-          color: _TodaySharePoster._headerInk,
-          fontSize: compact ? 11 : 12,
+          color: _ink,
+          fontSize: compact ? 20 : 22,
           fontWeight: FontWeight.w800,
         ),
       ),
     );
-    return width == null ? child : child;
   }
-}
 
-class _SideCell extends StatelessWidget {
-  const _SideCell({
-    required this.width,
-    required this.child,
-    this.compact = false,
-  });
-
-  final double width;
-  final Widget child;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      alignment: Alignment.center,
+  Widget _bodyCell(
+    String text, {
+    required bool compact,
+    bool bold = false,
+  }) {
+    return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: 6,
-        vertical: compact ? 7 : 10,
-      ),
-      decoration: const BoxDecoration(
-        color: _TodaySharePoster._sideBg,
-        border: Border(right: _ScheduleTable._borderSide),
-      ),
-      child: child,
-    );
-  }
-}
-
-class _DataRow extends StatelessWidget {
-  const _DataRow({
-    required this.row,
-    required this.showBottomBorder,
-    this.compact = false,
-  });
-
-  final _ScheduleRowData row;
-  final bool showBottomBorder;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = row.accent ?? _TodaySharePoster._normalAccent;
-    return Container(
-      decoration: BoxDecoration(
-        color: row.background,
-        border: showBottomBorder
-            ? const Border(bottom: _ScheduleTable._borderSide)
-            : null,
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(width: 4, color: accent),
-            Expanded(
-              flex: 18,
-              child: _BodyCell(
-                text: row.time,
-                align: TextAlign.center,
-                bold: true,
-                compact: compact,
-              ),
-            ),
-            Expanded(
-              flex: 42,
-              child: _BodyCell(
-                text: row.details,
-                compact: compact,
-                multiline: true,
-              ),
-            ),
-            Expanded(
-              flex: 34,
-              child: _BodyCell(
-                text: row.participants,
-                last: true,
-                compact: compact,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BodyCell extends StatelessWidget {
-  const _BodyCell({
-    required this.text,
-    this.align = TextAlign.left,
-    this.bold = false,
-    this.last = false,
-    this.compact = false,
-    this.multiline = false,
-  });
-
-  final String text;
-  final TextAlign align;
-  final bool bold;
-  final bool last;
-  final bool compact;
-  final bool multiline;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 7 : 10,
-      ),
-      alignment: align == TextAlign.center
-          ? Alignment.center
-          : Alignment.centerLeft,
-      decoration: BoxDecoration(
-        border: last ? null : const Border(right: _ScheduleTable._borderSide),
+        horizontal: 16,
+        vertical: compact ? 10 : 14,
       ),
       child: Text(
         text,
-        textAlign: align,
+        textAlign: TextAlign.left,
         style: TextStyle(
-          color: _TodaySharePoster._ink,
-          fontSize: compact ? 11.5 : 12.5,
-          height: multiline ? 1.4 : 1.35,
+          color: _ink,
+          fontSize: compact ? 18 : 20,
+          height: 1.35,
           fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
         ),
       ),
