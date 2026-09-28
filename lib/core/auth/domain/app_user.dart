@@ -88,8 +88,28 @@ class AppUser {
   );
 
   @override
-  bool operator ==(Object other) => other is AppUser && other.id == id && other.role == role && other.isSuperAdmin == isSuperAdmin;
+  bool operator ==(Object other) =>
+      other is AppUser &&
+      other.id == id &&
+      other.name == name &&
+      other.email == email &&
+      other.role == role &&
+      other.title == title &&
+      other.isAdmin == isAdmin &&
+      other.isSuperAdmin == isSuperAdmin &&
+      other.managerId == managerId &&
+      other.managerName == managerName;
 
   @override
-  int get hashCode => Object.hash(id, role, isSuperAdmin);
+  int get hashCode => Object.hash(
+        id,
+        name,
+        email,
+        role,
+        title,
+        isAdmin,
+        isSuperAdmin,
+        managerId,
+        managerName,
+      );
 }

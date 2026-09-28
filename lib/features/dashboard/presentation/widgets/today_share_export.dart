@@ -427,7 +427,10 @@ class _TodaySharePoster extends StatelessWidget {
 
   static const _ink = Color(0xFF111111);
   static const _titleRed = Color(0xFFC41E3A);
-  static const _roleBlue = Color(0xFF6EB3F0);
+  static const _roleBlue = Color(0xFF1E40AF);
+  static const _morning = Color(0xFF0F766E);
+  static const _afternoon = Color(0xFFC2410C);
+  static const _evening = Color(0xFF7E22CE);
   static const _border = Color(0xFF1A1A1A);
   static const _headerBg = Color(0xFFD9D9D9);
   static const _logoLeft = 'assets/APGOV.png';
@@ -553,7 +556,11 @@ class _TodaySharePoster extends StatelessWidget {
                         : _FilledScheduleTable(
                             rows: [
                               for (final row in rows)
-                                (time: _clock(row.at), title: row.title),
+                                (
+                                  time: _clock(row.at),
+                                  title: row.title,
+                                  at: row.at,
+                                ),
                             ],
                             compact: compact,
                           ),
@@ -569,7 +576,7 @@ class _TodaySharePoster extends StatelessWidget {
 }
 
 /// Name before the first comma stays large and red.
-/// Text after that comma is the role: smaller, pale blue.
+/// Text after that comma is the role: royal blue, same size as the date line.
 class _ScheduleNameBlock extends StatelessWidget {
   const _ScheduleNameBlock({
     required this.userName,
@@ -605,15 +612,15 @@ class _ScheduleNameBlock extends StatelessWidget {
           ),
         ),
         if (role.isNotEmpty) ...[
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             role,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: _TodaySharePoster._roleBlue,
-              fontSize: compact ? 16 : 20,
-              fontWeight: FontWeight.w600,
-              height: 1.15,
+              fontSize: compact ? 20 : 24,
+              fontWeight: FontWeight.w800,
+              height: 1.2,
             ),
           ),
         ],
@@ -640,8 +647,15 @@ class _FilledScheduleTable extends StatelessWidget {
     required this.compact,
   });
 
-  final List<({String time, String title})> rows;
+  final List<({String time, String title, DateTime at})> rows;
   final bool compact;
+
+  static Color _timeColor(DateTime at) {
+    final hour = at.hour;
+    if (hour < 12) return _TodaySharePoster._morning;
+    if (hour < 18) return _TodaySharePoster._afternoon;
+    return _TodaySharePoster._evening;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -660,6 +674,7 @@ class _FilledScheduleTable extends StatelessWidget {
               background: _TodaySharePoster._headerBg,
               fontSize: compact ? 20 : 22,
               bold: true,
+              centerLeft: true,
               bottom: true,
             ),
           ),
@@ -670,6 +685,8 @@ class _FilledScheduleTable extends StatelessWidget {
                 right: rows[i].title,
                 fontSize: compact ? 18 : 22,
                 boldLeft: true,
+                centerLeft: true,
+                leftColor: _timeColor(rows[i].at),
                 bottom: i < rows.length - 1,
               ),
             ),
@@ -683,8 +700,10 @@ class _FilledScheduleTable extends StatelessWidget {
     required String right,
     required double fontSize,
     Color? background,
+    Color? leftColor,
     bool bold = false,
     bool boldLeft = false,
+    bool centerLeft = false,
     bool bottom = false,
   }) {
     final border = BorderSide(color: _TodaySharePoster._border, width: 1.2);
@@ -704,6 +723,8 @@ class _FilledScheduleTable extends StatelessWidget {
               left,
               fontSize: fontSize,
               bold: bold || boldLeft,
+              color: leftColor ?? _TodaySharePoster._ink,
+              align: centerLeft ? TextAlign.center : TextAlign.left,
             ),
           ),
           ColoredBox(
@@ -727,16 +748,20 @@ class _FilledScheduleTable extends StatelessWidget {
     String text, {
     required double fontSize,
     required bool bold,
+    Color color = _TodaySharePoster._ink,
+    TextAlign align = TextAlign.left,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Align(
-        alignment: Alignment.centerLeft,
+        alignment: align == TextAlign.center
+            ? Alignment.center
+            : Alignment.centerLeft,
         child: Text(
           text,
-          textAlign: TextAlign.left,
+          textAlign: align,
           style: TextStyle(
-            color: _TodaySharePoster._ink,
+            color: color,
             fontSize: fontSize,
             height: 1.25,
             fontWeight: bold ? FontWeight.w800 : FontWeight.w600,

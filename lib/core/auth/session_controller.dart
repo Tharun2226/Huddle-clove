@@ -65,10 +65,11 @@ class SessionController extends Notifier<AppUser?> {
   }
 
   Future<AppUser> updateMyName(String name) async {
-    final updated = await ref.read(authApiProvider).renameMe(name);
-    state = updated;
+    await ref.read(authApiProvider).renameMe(name);
+    final fresh = await ref.read(authApiProvider).me();
+    state = fresh.user;
     ref.invalidate(remoteTeamProvider);
-    return updated;
+    return fresh.user;
   }
 
   Future<AppUser> updateTeammate({
