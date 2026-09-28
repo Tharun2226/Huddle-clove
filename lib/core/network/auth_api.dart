@@ -89,6 +89,14 @@ class AuthApi {
     return _mapUser(res.data!);
   }
 
+  Future<AppUser> renameMe(String name) async {
+    final res = await _client.dio.patch<Map<String, dynamic>>(
+      '/users/me',
+      data: {'name': name.trim()},
+    );
+    return _mapUser(res.data!);
+  }
+
   Future<AppUser> updateUser({
     required String id,
     String? roleId,

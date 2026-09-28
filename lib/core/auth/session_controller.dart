@@ -64,6 +64,13 @@ class SessionController extends Notifier<AppUser?> {
         );
   }
 
+  Future<AppUser> updateMyName(String name) async {
+    final updated = await ref.read(authApiProvider).renameMe(name);
+    state = updated;
+    ref.invalidate(remoteTeamProvider);
+    return updated;
+  }
+
   Future<AppUser> updateTeammate({
     required String id,
     String? roleId,

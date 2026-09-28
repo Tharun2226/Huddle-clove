@@ -353,7 +353,7 @@ Future<Uint8List> _captureTodayPng(
     if (boundary == null) {
       throw StateError('Could not render Today image');
     }
-    final image = await boundary.toImage(pixelRatio: 1);
+    final image = await boundary.toImage(pixelRatio: _a4PixelRatio);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
       throw StateError('Could not encode PNG');
@@ -367,11 +367,13 @@ Future<Uint8List> _captureTodayPng(
   }
 }
 
-/// A4 portrait at 200 DPI (210×297 mm) so the shared PNG prints at paper size.
-const _a4Dpi = 200;
-const _a4WidthPx = 1654.0;
-const _a4HeightPx = 2339.0;
-const _a4MarginPx = 94.0;
+/// A4 portrait at 300 DPI: 2480×3508 px (210×297 mm).
+/// Logical size is half of that; capture uses [_a4PixelRatio].
+const _a4Dpi = 300;
+const _a4PixelRatio = 2.0;
+const _a4WidthPx = 1240.0;
+const _a4HeightPx = 1754.0;
+const _a4MarginPx = 36.0;
 
 /// Stamp PNG pHYs so printers treat the pixels as [_a4Dpi] dots per inch.
 Uint8List _pngWithPrintDpi(Uint8List png, {required int dpi}) {
@@ -425,6 +427,7 @@ class _TodaySharePoster extends StatelessWidget {
 
   static const _ink = Color(0xFF111111);
   static const _titleRed = Color(0xFFC41E3A);
+  static const _roleBlue = Color(0xFF6EB3F0);
   static const _border = Color(0xFF1A1A1A);
   static const _headerBg = Color(0xFFD9D9D9);
   static const _logoLeft = 'assets/APGOV.png';
@@ -477,126 +480,9 @@ class _TodaySharePoster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = _rows;
-    final compact = rows.length >= 10;
+    final compact = rows.length >= 14;
+    final logo = compact ? 108.0 : 128.0;
 
-    final content = Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: _border, width: 1.6),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          padding: EdgeInsets.fromLTRB(18, 16, 18, compact ? 16 : 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    _logoLeft,
-                    width: 140,
-                    height: 140,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                    gaplessPlayback: true,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          data.userName.trim().isEmpty
-                              ? 'COMMISSIONER APCRDA'
-                              : data.userName.trim().toUpperCase(),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: _titleRed,
-                            fontSize: 36,
-                            fontWeight: FontWeight.w800,
-                            height: 1.15,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _scheduleDateLine(data.date),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: _titleRed,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            height: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Image.asset(
-                    _logoRight,
-                    width: 180,
-                    height: 140,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                    gaplessPlayback: true,
-                  ),
-                ],
-              ),
-              SizedBox(height: compact ? 12 : 16),
-              if (rows.isEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 28,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: _border, width: 1.2),
-                  ),
-                  child: const Text(
-                    'No meetings or tasks scheduled for today.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                )
-              else
-                Table(
-                  border: TableBorder.all(color: _border, width: 1.2),
-                  columnWidths: const {
-                    0: FlexColumnWidth(1.15),
-                    1: FlexColumnWidth(3.6),
-                  },
-                  defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                  children: [
-                    TableRow(
-                      decoration: const BoxDecoration(color: _headerBg),
-                      children: [
-                        _headerCell('Time', compact: compact),
-                        _headerCell('Meeting Details', compact: compact),
-                      ],
-                    ),
-                    for (final row in rows)
-                      TableRow(
-                        children: [
-                          _bodyCell(
-                            _clock(row.at),
-                            compact: compact,
-                            bold: true,
-                          ),
-                          _bodyCell(row.title, compact: compact),
-                        ],
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        );
-
-    final contentWidth = _a4WidthPx - (_a4MarginPx * 2);
     return ColoredBox(
       color: Colors.white,
       child: SizedBox(
@@ -604,14 +490,75 @@ class _TodaySharePoster extends StatelessWidget {
         height: _a4HeightPx,
         child: Padding(
           padding: const EdgeInsets.all(_a4MarginPx),
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: contentWidth,
-                child: content,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: _border, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        _logoLeft,
+                        width: logo,
+                        height: logo,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        gaplessPlayback: true,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _ScheduleNameBlock(
+                          userName: data.userName,
+                          dateLine: _scheduleDateLine(data.date),
+                          compact: compact,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Image.asset(
+                        _logoRight,
+                        width: logo + 36,
+                        height: logo,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        gaplessPlayback: true,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: rows.isEmpty
+                        ? DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: _border, width: 1.4),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'No meetings or tasks scheduled for today.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          )
+                        : _FilledScheduleTable(
+                            rows: [
+                              for (final row in rows)
+                                (time: _clock(row.at), title: row.title),
+                            ],
+                            compact: compact,
+                          ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -619,43 +566,181 @@ class _TodaySharePoster extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _headerCell(String text, {required bool compact}) {
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: compact ? 10 : 14,
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.left,
-        style: TextStyle(
-          color: _ink,
-          fontSize: compact ? 20 : 22,
-          fontWeight: FontWeight.w800,
+/// Name before the first comma stays large and red.
+/// Text after that comma is the role: smaller, pale blue.
+class _ScheduleNameBlock extends StatelessWidget {
+  const _ScheduleNameBlock({
+    required this.userName,
+    required this.dateLine,
+    required this.compact,
+  });
+
+  final String userName;
+  final String dateLine;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final raw = userName.trim();
+    final comma = raw.indexOf(',');
+    final name = raw.isEmpty
+        ? 'COMMISSIONER APCRDA'
+        : (comma < 0 ? raw : raw.substring(0, comma).trim());
+    final role = comma < 0 ? '' : raw.substring(comma + 1).trim();
+    final displayName = name.isEmpty ? raw.toUpperCase() : name.toUpperCase();
+
+    return Column(
+      children: [
+        Text(
+          displayName.isEmpty ? 'COMMISSIONER APCRDA' : displayName,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _TodaySharePoster._titleRed,
+            fontSize: compact ? 30 : 36,
+            fontWeight: FontWeight.w800,
+            height: 1.15,
+            letterSpacing: 0.4,
+          ),
         ),
+        if (role.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            role,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _TodaySharePoster._roleBlue,
+              fontSize: compact ? 16 : 20,
+              fontWeight: FontWeight.w600,
+              height: 1.15,
+            ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        Text(
+          dateLine,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _TodaySharePoster._titleRed,
+            fontSize: compact ? 20 : 24,
+            fontWeight: FontWeight.w700,
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Time / Meeting Details grid stretched to the remaining A4 page.
+class _FilledScheduleTable extends StatelessWidget {
+  const _FilledScheduleTable({
+    required this.rows,
+    required this.compact,
+  });
+
+  final List<({String time, String title})> rows;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: _TodaySharePoster._border, width: 1.6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: compact ? 52 : 60,
+            child: _gridLine(
+              left: 'Time',
+              right: 'Meeting Details',
+              background: _TodaySharePoster._headerBg,
+              fontSize: compact ? 20 : 22,
+              bold: true,
+              bottom: true,
+            ),
+          ),
+          for (var i = 0; i < rows.length; i++)
+            Expanded(
+              child: _gridLine(
+                left: rows[i].time,
+                right: rows[i].title,
+                fontSize: compact ? 18 : 22,
+                boldLeft: true,
+                bottom: i < rows.length - 1,
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _bodyCell(
-    String text, {
-    required bool compact,
+  Widget _gridLine({
+    required String left,
+    required String right,
+    required double fontSize,
+    Color? background,
     bool bold = false,
+    bool boldLeft = false,
+    bool bottom = false,
+  }) {
+    final border = BorderSide(color: _TodaySharePoster._border, width: 1.2);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background ?? Colors.white,
+        border: Border(
+          bottom: bottom ? border : BorderSide.none,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 28,
+            child: _cell(
+              left,
+              fontSize: fontSize,
+              bold: bold || boldLeft,
+            ),
+          ),
+          ColoredBox(
+            color: _TodaySharePoster._border,
+            child: const SizedBox(width: 1.4),
+          ),
+          Expanded(
+            flex: 72,
+            child: _cell(
+              right,
+              fontSize: fontSize,
+              bold: bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(
+    String text, {
+    required double fontSize,
+    required bool bold,
   }) {
     return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: compact ? 10 : 14,
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.left,
-        style: TextStyle(
-          color: _ink,
-          fontSize: compact ? 18 : 20,
-          height: 1.35,
-          fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          textAlign: TextAlign.left,
+          style: TextStyle(
+            color: _TodaySharePoster._ink,
+            fontSize: fontSize,
+            height: 1.25,
+            fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+          ),
         ),
       ),
     );

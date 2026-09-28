@@ -6,6 +6,7 @@ import '../../../core/auth/session_controller.dart';
 import '../../../core/di/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/app_feedback.dart';
 import '../../../shared/widgets/avatar.dart';
 import '../../../shared/widgets/huddle_card.dart';
 
@@ -41,19 +42,41 @@ class SettingsScreen extends ConsumerWidget {
                 UserAvatar(user: me, size: 52),
                 const SizedBox(width: Insets.lg),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(me.name, style: context.text.titleMedium),
-                      const SizedBox(height: 2),
-                      Text(
-                        me.email,
-                        style: context.text.bodySmall?.copyWith(
-                          color: palette.neutral,
-                        ),
+                  child: InkWell(
+                    onTap: () => _editName(context, ref, me.name),
+                    borderRadius: BorderRadius.circular(Radii.sm),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  me.name,
+                                  style: context.text.titleMedium,
+                                ),
+                              ),
+                              const SizedBox(width: Insets.xs),
+                              Icon(
+                                Icons.edit_outlined,
+                                size: 16,
+                                color: palette.neutral,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            me.email,
+                            style: context.text.bodySmall?.copyWith(
+                              color: palette.neutral,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -154,6 +177,59 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+Future<void> _editName(
+  BuildContext context,
+  WidgetRef ref,
+  String current,
+) async {
+  final controller = TextEditingController(text: current);
+  final saved = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Edit name'),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          labelText: 'Name',
+          helperText:
+              'Text after the first comma prints as the role on the schedule.',
+          helperMaxLines: 2,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+  if (saved == null || saved == current.trim() || !context.mounted) return;
+  if (saved.length < 2) {
+    AppFeedback.error(
+      AppFeedback.messengerOf(context),
+      'Name must be at least 2 characters',
+    );
+    return;
+  }
+
+  try {
+    await ref.read(sessionControllerProvider.notifier).updateMyName(saved);
+    if (!context.mounted) return;
+    AppFeedback.success(AppFeedback.messengerOf(context), 'Name updated');
+  } catch (e) {
+    if (!context.mounted) return;
+    AppFeedback.error(AppFeedback.messengerOf(context), 'Could not update name');
   }
 }
 
