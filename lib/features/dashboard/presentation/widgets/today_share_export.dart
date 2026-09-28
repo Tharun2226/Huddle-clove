@@ -428,9 +428,7 @@ class _TodaySharePoster extends StatelessWidget {
   static const _ink = Color(0xFF111111);
   static const _titleRed = Color(0xFFC41E3A);
   static const _roleBlue = Color(0xFF1E40AF);
-  static const _morning = Color(0xFF0F766E);
-  static const _afternoon = Color(0xFFC2410C);
-  static const _evening = Color(0xFF7E22CE);
+  static const _timeRed = Color(0xFF760000);
   static const _border = Color(0xFF1A1A1A);
   static const _headerBg = Color(0xFFD9D9D9);
   static const _logoLeft = 'assets/APGOV.png';
@@ -556,11 +554,7 @@ class _TodaySharePoster extends StatelessWidget {
                         : _FilledScheduleTable(
                             rows: [
                               for (final row in rows)
-                                (
-                                  time: _clock(row.at),
-                                  title: row.title,
-                                  at: row.at,
-                                ),
+                                (time: _clock(row.at), title: row.title),
                             ],
                             compact: compact,
                           ),
@@ -647,15 +641,8 @@ class _FilledScheduleTable extends StatelessWidget {
     required this.compact,
   });
 
-  final List<({String time, String title, DateTime at})> rows;
+  final List<({String time, String title})> rows;
   final bool compact;
-
-  static Color _timeColor(DateTime at) {
-    final hour = at.hour;
-    if (hour < 12) return _TodaySharePoster._morning;
-    if (hour < 18) return _TodaySharePoster._afternoon;
-    return _TodaySharePoster._evening;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -667,12 +654,12 @@ class _FilledScheduleTable extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            height: compact ? 52 : 60,
+            height: compact ? 64 : 76,
             child: _gridLine(
               left: 'Time',
               right: 'Meeting Details',
               background: _TodaySharePoster._headerBg,
-              fontSize: compact ? 20 : 22,
+              fontSize: compact ? 26 : 30,
               bold: true,
               centerLeft: true,
               bottom: true,
@@ -683,10 +670,10 @@ class _FilledScheduleTable extends StatelessWidget {
               child: _gridLine(
                 left: rows[i].time,
                 right: rows[i].title,
-                fontSize: compact ? 18 : 22,
+                fontSize: compact ? 24 : 28,
                 boldLeft: true,
                 centerLeft: true,
-                leftColor: _timeColor(rows[i].at),
+                leftColor: _TodaySharePoster._timeRed,
                 bottom: i < rows.length - 1,
               ),
             ),
