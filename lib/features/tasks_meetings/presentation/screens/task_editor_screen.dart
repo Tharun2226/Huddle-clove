@@ -10,6 +10,8 @@ import '../../../../shared/utils/app_feedback.dart';
 import '../../../../shared/utils/formatters.dart';
 import '../../../../shared/widgets/avatar.dart';
 import '../../../../shared/widgets/huddle_card.dart';
+import '../../../notifications/presentation/reminder_picker.dart';
+import '../../../notifications/providers/notification_providers.dart';
 import '../../domain/task.dart';
 import '../providers/task_providers.dart';
 import '../widgets/task_visuals.dart';
@@ -51,6 +53,8 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
   late TaskStatus _status;
   late TaskPriority _priority;
   DateTime? _dueDate;
+  int? _reminderMinutes;
+  ReminderStyle _reminderStyle = ReminderStyle.notification;
   final List<String> _tags = [];
   final List<String> _checklist = [];
   bool _saving = false;
@@ -142,6 +146,19 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
       _dueDate = DateTime(safeDay.year, safeDay.month, safeDay.day, 17, 0);
     }
     _tags.addAll(existing?.tags ?? const []);
+
+    if (_isEditing) {
+      ref
+          .read(reminderServiceProvider)
+          .settingFor(ReminderKind.task, widget.taskId!)
+          .then((m) {
+        if (!mounted || m == null) return;
+        setState(() {
+          _reminderMinutes = m.minutes;
+          _reminderStyle = m.style;
+        });
+      });
+    }
   }
 
   @override
@@ -267,10 +284,11 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
               .firstOrNull
               ?.id;
 
+      final Task saved;
       if (_isEditing) {
         final existing = ref.read(taskByIdProvider(widget.taskId!));
         if (existing == null) return;
-        await repo.updateTask(
+        saved = await repo.updateTask(
           existing.copyWith(
             title: _title.text.trim(),
             description: _description.text.trim(),
@@ -288,7 +306,7 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
           actorId: me.id,
         );
       } else {
-        await repo.createTask(
+        saved = await repo.createTask(
           TaskDraft(
             title: _title.text.trim(),
             description: _description.text.trim(),
@@ -306,6 +324,14 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
           actorId: me.id,
         );
       }
+
+      await ref.read(reminderServiceProvider).setReminder(
+            ReminderKind.task,
+            saved.id,
+            _reminderMinutes,
+            style: _reminderStyle,
+            task: saved,
+          );
 
       if (!mounted) return;
       AppFeedback.successAndPop(
@@ -804,6 +830,15 @@ class _TaskEditorScreenState extends ConsumerState<TaskEditorScreen> {
                 ],
               ),
             ),
+            if (ReminderService.isSupported) ...[
+              const SizedBox(height: Insets.lg),
+              ReminderPicker(
+                value: _reminderMinutes,
+                onChanged: (m) => setState(() => _reminderMinutes = m),
+                style: _reminderStyle,
+                onStyleChanged: (s) => setState(() => _reminderStyle = s),
+              ),
+            ],
           ],
         ),
       ),

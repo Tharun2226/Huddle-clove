@@ -14,6 +14,8 @@ import '../../../../shared/theme/app_tokens.dart';
 import '../../../../shared/utils/app_feedback.dart';
 import '../../../../shared/utils/date_codec.dart';
 import '../../../../shared/utils/formatters.dart';
+import '../../../notifications/presentation/reminder_picker.dart';
+import '../../../notifications/providers/notification_providers.dart';
 import '../providers/task_providers.dart';
 import 'download_bytes.dart';
 import 'task_import_models.dart';
@@ -362,13 +364,14 @@ Future<void> _reviewAndImportRows(
 ) async {
   final messenger = AppFeedback.messengerOf(context);
   final config = ref.read(orgConfigProvider);
-  final reviewed = await showModalBottomSheet<List<TaskImportRowPayload>>(
+  final result = await showModalBottomSheet<_ReviewedImport>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (ctx) => _TaskImportReviewSheet(rows: rows, config: config),
   );
-  if (reviewed == null || reviewed.isEmpty || !context.mounted) return;
+  if (result == null || result.rows.isEmpty || !context.mounted) return;
+  final reviewed = result.rows;
 
   showDialog<void>(
     context: context,
@@ -378,22 +381,31 @@ Future<void> _reviewAndImportRows(
 
   try {
     final api = ApiTaskRepository(ref.read(apiClientProvider));
-    final result = await api.importTasks([
+    final importResult = await api.importTasks([
       for (final row in reviewed) row.toJson(),
     ]);
+    if (result.reminderMinutes != null && importResult.createdIds.isNotEmpty) {
+      await ref.read(reminderServiceProvider).setReminders(
+            ReminderKind.task,
+            importResult.createdIds,
+            result.reminderMinutes,
+            style: result.reminderStyle,
+          );
+    }
     ref.invalidate(tasksProvider);
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
-    final created = result.createdCount;
-    final failed = result.failedCount;
+    final created = importResult.createdCount;
+    final failed = importResult.failedCount;
     if (failed == 0) {
       AppFeedback.success(
         messenger,
-        'Imported $created task${created == 1 ? '' : 's'}',
+        'Imported $created task${created == 1 ? '' : 's'}'
+        '${result.reminderMinutes != null ? ' with reminders' : ''}',
       );
     } else {
-      final firstError = result.failed.isNotEmpty
-          ? result.failed.first.error
+      final firstError = importResult.failed.isNotEmpty
+          ? importResult.failed.first.error
           : 'Unknown error';
       AppFeedback.error(
         messenger,
@@ -406,6 +418,12 @@ Future<void> _reviewAndImportRows(
     AppFeedback.error(messenger, 'Import failed: $e');
   }
 }
+
+typedef _ReviewedImport = ({
+  List<TaskImportRowPayload> rows,
+  int? reminderMinutes,
+  ReminderStyle reminderStyle,
+});
 
 class _TaskImportReviewSheet extends StatefulWidget {
   const _TaskImportReviewSheet({
@@ -422,6 +440,8 @@ class _TaskImportReviewSheet extends StatefulWidget {
 
 class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
   late List<TaskImportRowPayload> _rows;
+  int? _reminderMinutes;
+  ReminderStyle _reminderStyle = ReminderStyle.notification;
 
   List<String> get _priorities {
     final names = widget.config.taskPriorities.map((p) => p.name).toList();
@@ -499,6 +519,16 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
+                  if (ReminderService.isSupported) ...[
+                    const SizedBox(height: Insets.md),
+                    ReminderPicker(
+                      label: 'Remind me for all tasks (this phone)',
+                      value: _reminderMinutes,
+                      onChanged: (m) => setState(() => _reminderMinutes = m),
+                      style: _reminderStyle,
+                      onStyleChanged: (s) => setState(() => _reminderStyle = s),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -595,7 +625,14 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                   Insets.md,
                 ),
                 child: FilledButton(
-                  onPressed: () => Navigator.pop(context, _rows),
+                  onPressed: () => Navigator.pop<_ReviewedImport>(
+                    context,
+                    (
+                      rows: _rows,
+                      reminderMinutes: _reminderMinutes,
+                      reminderStyle: _reminderStyle,
+                    ),
+                  ),
                   child: Text('Import ${_rows.length} task${_rows.length == 1 ? '' : 's'}'),
                 ),
               ),

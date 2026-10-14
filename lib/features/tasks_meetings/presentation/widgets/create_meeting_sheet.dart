@@ -9,6 +9,8 @@ import '../../../../shared/utils/app_feedback.dart';
 import '../../../../shared/utils/formatters.dart';
 import '../../../../shared/widgets/avatar.dart';
 import '../../../../shared/widgets/huddle_card.dart';
+import '../../../notifications/presentation/reminder_picker.dart';
+import '../../../notifications/providers/notification_providers.dart';
 import '../../domain/meeting.dart';
 import '../../domain/task.dart';
 
@@ -57,6 +59,8 @@ class _CreateMeetingSheetState extends ConsumerState<_CreateMeetingSheet> {
   final Set<int> _weekdays = {};
   var _saving = false;
   String? _error;
+  int? _reminderMinutes;
+  ReminderStyle _reminderStyle = ReminderStyle.notification;
 
   bool get _isEditing => widget.meeting != null;
 
@@ -88,6 +92,16 @@ class _CreateMeetingSheetState extends ConsumerState<_CreateMeetingSheet> {
       _isOnline = _clampOnline(existing.isOnline);
       _recurrence = existing.recurrence;
       _weekdays.addAll(existing.weekdays);
+      ref
+          .read(reminderServiceProvider)
+          .settingFor(ReminderKind.meeting, existing.id)
+          .then((m) {
+        if (!mounted || m == null) return;
+        setState(() {
+          _reminderMinutes = m.minutes;
+          _reminderStyle = m.style;
+        });
+      });
     } else {
       final hour = (now.hour + 1).clamp(0, 23);
       _title = TextEditingController(
@@ -271,6 +285,13 @@ class _CreateMeetingSheetState extends ConsumerState<_CreateMeetingSheet> {
               actorId: me.id,
             )
           : await repo.createMeeting(draft, actorId: me.id);
+      await ref.read(reminderServiceProvider).setReminder(
+            ReminderKind.meeting,
+            meeting.id,
+            _reminderMinutes,
+            style: _reminderStyle,
+            meeting: meeting,
+          );
       if (!mounted) return;
       AppFeedback.successAndPop(
         context,
@@ -701,6 +722,15 @@ class _CreateMeetingSheetState extends ConsumerState<_CreateMeetingSheet> {
                       hintText: 'Anything else to remember…',
                     ),
                   ),
+                  if (ReminderService.isSupported) ...[
+                    const SizedBox(height: Insets.xl),
+                    ReminderPicker(
+                      value: _reminderMinutes,
+                      onChanged: (m) => setState(() => _reminderMinutes = m),
+                      style: _reminderStyle,
+                      onStyleChanged: (s) => setState(() => _reminderStyle = s),
+                    ),
+                  ],
 
                   if (_error != null) ...[
                     const SizedBox(height: Insets.md),

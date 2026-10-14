@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -5,7 +7,11 @@ import '../../../core/di/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../data/notification_api.dart';
 import '../domain/app_notification.dart';
+import '../../tasks_meetings/presentation/providers/task_providers.dart';
 import '../services/push_notification_service.dart';
+import '../services/reminder_service.dart';
+
+export '../services/reminder_service.dart';
 
 final notificationApiProvider = Provider<NotificationApi>(
   (ref) => NotificationApi(ref.watch(apiClientProvider)),
@@ -15,6 +21,21 @@ final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) 
   final service = PushNotificationService();
   ref.onDispose(() {});
   return service;
+});
+
+final reminderServiceProvider = Provider<ReminderService>(
+  (ref) => ReminderService(ref.watch(pushNotificationServiceProvider)),
+);
+
+/// Re-schedules on-device reminders whenever tasks or meetings change.
+/// Watched from [HomeShell] so it runs for the whole signed-in session.
+final reminderSyncProvider = Provider<void>((ref) {
+  final tasks = ref.watch(tasksProvider).value;
+  final meetings = ref.watch(meetingsProvider).value;
+  if (tasks == null || meetings == null) return;
+  unawaited(
+    ref.read(reminderServiceProvider).sync(tasks: tasks, meetings: meetings),
+  );
 });
 
 final notificationsProvider =

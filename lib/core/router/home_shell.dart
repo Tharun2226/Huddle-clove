@@ -34,6 +34,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(reminderSyncProvider);
     final palette = context.palette;
     final isManager = ref.watch(isManagerProvider);
     final shell = widget.shell;

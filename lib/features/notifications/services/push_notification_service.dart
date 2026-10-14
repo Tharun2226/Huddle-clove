@@ -59,11 +59,18 @@ class PushNotificationService {
   final _local = FlutterLocalNotificationsPlugin();
 
   bool _ready = false;
+  bool _localReady = false;
   bool _listenersBound = false;
   NotificationTapCallback? onTap;
 
   static const _channelId = 'huddle_default';
   static const _channelName = 'Huddle';
+
+  /// Channel for on-device task / meeting reminders.
+  static const reminderChannelId = 'huddle_reminders';
+  static const reminderChannelName = 'Reminders';
+
+  FlutterLocalNotificationsPlugin get local => _local;
 
   Future<bool> ensureInitialized() async {
     if (_ready) return true;
@@ -75,6 +82,17 @@ class PushNotificationService {
       debugPrint('Firebase.initializeApp failed: $e');
       return false;
     }
+
+    await ensureLocalInitialized();
+    _ready = true;
+    return true;
+  }
+
+  /// Local notifications (taps + channels) without Firebase, so on-device
+  /// reminders work even when FCM is unavailable.
+  Future<void> ensureLocalInitialized() async {
+    if (_localReady) return;
+    _localReady = true;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _local.initialize(
@@ -103,6 +121,14 @@ class PushNotificationService {
         importance: Importance.high,
       ),
     );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        reminderChannelId,
+        reminderChannelName,
+        description: 'Task and meeting reminders you set on this phone',
+        importance: Importance.high,
+      ),
+    );
 
     // Cold start from a local notification tap.
     final launch = await _local.getNotificationAppLaunchDetails();
@@ -118,9 +144,6 @@ class PushNotificationService {
         );
       }
     }
-
-    _ready = true;
-    return true;
   }
 
   Future<void> requestPermissionAndRegister(

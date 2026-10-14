@@ -31,9 +31,13 @@ class TaskImportResult {
     required this.createdCount,
     required this.failedCount,
     required this.failed,
+    this.createdIds = const [],
   });
 
   final int createdCount;
+
+  /// Ids of tasks created by the import, in row order.
+  final List<String> createdIds;
   final int failedCount;
   final List<TaskImportFailure> failed;
 
@@ -44,6 +48,11 @@ class TaskImportResult {
         failed: [
           for (final row in (json['failed'] as List<dynamic>? ?? const []))
             if (row is Map<String, dynamic>) TaskImportFailure.fromJson(row),
+        ],
+        createdIds: [
+          for (final row in (json['created'] as List<dynamic>? ?? const []))
+            if (row is Map<String, dynamic> && row['id'] != null)
+              '${row['id']}',
         ],
       );
 }
