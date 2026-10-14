@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:excel/excel.dart' hide Border;
+import 'package:excel/excel.dart' hide Border, TextSpan;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
@@ -644,43 +644,164 @@ class _FilledScheduleTable extends StatelessWidget {
   final List<({String time, String title})> rows;
   final bool compact;
 
+  static const _cellPadH = 16.0;
+  static const _cellPadV = 8.0;
+  static const _rowBreathing = 14.0;
+  static const _minFontSize = 16.0;
+  static const _dividerWidth = 1.4;
+
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: _TodaySharePoster._border, width: 1.6),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: compact ? 64 : 76,
-            child: _gridLine(
-              left: 'Time',
-              right: 'Meeting Details',
-              background: _TodaySharePoster._headerBg,
-              fontSize: compact ? 26 : 30,
-              bold: true,
-              centerLeft: true,
-              bottom: true,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final headerHeight = compact ? 64.0 : 76.0;
+        final available = constraints.maxHeight - headerHeight - 0.5;
+        final fit = _fitRows(context, constraints.maxWidth, available);
+
+        final table = DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: _TodaySharePoster._border, width: 1.6),
           ),
-          for (var i = 0; i < rows.length; i++)
-            Expanded(
-              child: _gridLine(
-                left: rows[i].time,
-                right: rows[i].title,
-                fontSize: compact ? 24 : 28,
-                boldLeft: true,
-                centerLeft: true,
-                leftColor: _TodaySharePoster._timeRed,
-                bottom: i < rows.length - 1,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: headerHeight,
+                child: _gridLine(
+                  left: 'Time',
+                  right: 'Meeting Details',
+                  background: _TodaySharePoster._headerBg,
+                  fontSize: compact ? 26 : 30,
+                  bold: true,
+                  centerLeft: true,
+                  bottom: true,
+                ),
               ),
-            ),
-        ],
-      ),
+              for (var i = 0; i < rows.length; i++)
+                SizedBox(
+                  height: fit.heights[i],
+                  child: _gridLine(
+                    left: rows[i].time,
+                    right: rows[i].title,
+                    fontSize: fit.fontSize,
+                    boldLeft: true,
+                    centerLeft: true,
+                    leftColor: _TodaySharePoster._timeRed,
+                    bottom: i < rows.length - 1,
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        if (!fit.overflow) return table;
+        // Even the smallest font doesn't fit: scale the whole table down.
+        final total =
+            headerHeight + fit.heights.fold<double>(0, (a, b) => a + b);
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            height: total,
+            child: table,
+          ),
+        );
+      },
     );
   }
+
+  /// Picks the largest font where every row fits its text, then spreads the
+  /// leftover height across the shorter rows so the page stays filled.
+  ({double fontSize, List<double> heights, bool overflow}) _fitRows(
+    BuildContext context,
+    double width,
+    double available,
+  ) {
+    final base = DefaultTextStyle.of(context).style;
+    final scaler = MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling;
+    final inner = width - _dividerWidth;
+    final leftText = inner * 28 / 100 - _cellPadH * 2 - 2;
+    final rightText = inner * 72 / 100 - _cellPadH * 2 - 2;
+
+    List<double> measure(double fontSize) => [
+          for (final r in rows)
+            _rowBreathing +
+                _cellPadV * 2 +
+                [
+                  _textHeight(
+                    r.time,
+                    base.merge(_style(fontSize, true, _TodaySharePoster._timeRed)),
+                    leftText,
+                    scaler,
+                  ),
+                  _textHeight(
+                    r.title,
+                    base.merge(_style(fontSize, false, _TodaySharePoster._ink)),
+                    rightText,
+                    scaler,
+                  ),
+                ].reduce((a, b) => a > b ? a : b),
+        ];
+
+    var fontSize = compact ? 24.0 : 28.0;
+    var natural = measure(fontSize);
+    while (natural.fold<double>(0, (a, b) => a + b) > available &&
+        fontSize > _minFontSize) {
+      fontSize -= 1;
+      natural = measure(fontSize);
+    }
+
+    final sum = natural.fold<double>(0, (a, b) => a + b);
+    if (sum > available) {
+      return (fontSize: fontSize, heights: natural, overflow: true);
+    }
+
+    // Water-fill: tall rows keep their natural height, the rest share
+    // the remaining space equally.
+    final desc = [...natural]..sort((a, b) => b.compareTo(a));
+    var remaining = available;
+    var count = desc.length;
+    var level = 0.0;
+    for (final h in desc) {
+      final share = remaining / count;
+      if (h <= share) {
+        level = share;
+        break;
+      }
+      remaining -= h;
+      count--;
+    }
+    return (
+      fontSize: fontSize,
+      heights: [for (final h in natural) h > level ? h : level],
+      overflow: false,
+    );
+  }
+
+  static double _textHeight(
+    String text,
+    TextStyle style,
+    double maxWidth,
+    TextScaler scaler,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: ui.TextDirection.ltr,
+      textScaler: scaler,
+    )..layout(maxWidth: maxWidth < 1 ? 1 : maxWidth);
+    final height = painter.height;
+    painter.dispose();
+    return height;
+  }
+
+  static TextStyle _style(double fontSize, bool bold, Color color) =>
+      TextStyle(
+        color: color,
+        fontSize: fontSize,
+        height: 1.25,
+        fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+      );
 
   Widget _gridLine({
     required String left,
@@ -739,7 +860,10 @@ class _FilledScheduleTable extends StatelessWidget {
     TextAlign align = TextAlign.left,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: _cellPadH,
+        vertical: _cellPadV,
+      ),
       child: Align(
         alignment: align == TextAlign.center
             ? Alignment.center
@@ -747,12 +871,7 @@ class _FilledScheduleTable extends StatelessWidget {
         child: Text(
           text,
           textAlign: align,
-          style: TextStyle(
-            color: color,
-            fontSize: fontSize,
-            height: 1.25,
-            fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
-          ),
+          style: _style(fontSize, bold, color),
         ),
       ),
     );
