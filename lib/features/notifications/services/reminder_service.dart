@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -71,8 +70,10 @@ class ReminderService {
 
   /// Alarm-style alerts get their own channel so they can use the alarm
   /// audio stream (rings even when notification volume is muted).
-  static const _alarmChannelId = 'huddle_reminder_alarms';
-  static const _alarmChannelName = 'Reminder alarms';
+  /// Android freezes a channel's sound once created, so a sound change needs
+  /// a new id — see [PushNotificationService.alarmChannelId].
+  static const _alarmChannelId = PushNotificationService.alarmChannelId;
+  static const _alarmChannelName = PushNotificationService.alarmChannelName;
 
   /// Android Notification.FLAG_INSISTENT — repeat sound until dismissed.
   static const _flagInsistent = 4;
@@ -84,7 +85,8 @@ class ReminderService {
   /// Upcoming occurrences scheduled per recurring meeting.
   static const _maxOccurrences = 10;
 
-  static bool get isSupported => !kIsWeb && Platform.isAndroid;
+  static bool get isSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   Map<String, ReminderSetting>? _settings;
   List<Task> _tasks = const [];
@@ -121,30 +123,44 @@ class ReminderService {
         meeting,
       ];
     }
-    await setReminders(kind, [id], minutesBefore, style: style);
+    await setEach(kind, {id: (minutes: minutesBefore, style: style)});
   }
 
+  /// Same reminder for every id in [ids].
   Future<void> setReminders(
     ReminderKind kind,
     Iterable<String> ids,
     int? minutesBefore, {
     ReminderStyle style = ReminderStyle.notification,
-  }) async {
-    if (!isSupported) return;
+  }) =>
+      setEach(kind, {
+        for (final id in ids) id: (minutes: minutesBefore, style: style),
+      });
+
+  /// A different reminder per id (null minutes clears it), saved and
+  /// scheduled in one pass.
+  Future<void> setEach(
+    ReminderKind kind,
+    Map<String, ({int? minutes, ReminderStyle style})> choices,
+  ) async {
+    if (!isSupported || choices.isEmpty) return;
     // Never let a reminder problem fail the task / meeting save.
     try {
       final settings = await _load();
       final now = DateTime.now();
-      for (final id in ids) {
-        final key = _key(kind, id);
-        if (minutesBefore == null) {
+      for (final e in choices.entries) {
+        final key = _key(kind, e.key);
+        final minutes = e.value.minutes;
+        if (minutes == null) {
           settings.remove(key);
         } else {
-          settings[key] = (minutes: minutesBefore, style: style, savedAt: now);
+          settings[key] = (minutes: minutes, style: e.value.style, savedAt: now);
         }
       }
       await _save(settings);
-      if (minutesBefore != null) await _requestPermissions();
+      if (choices.values.any((c) => c.minutes != null)) {
+        await _requestPermissions();
+      }
     } catch (e) {
       debugPrint('Could not save reminder: $e');
       return;
@@ -352,9 +368,10 @@ class ReminderService {
     priority: Priority.max,
     category: AndroidNotificationCategory.alarm,
     icon: '@mipmap/ic_launcher',
-    sound: const UriAndroidNotificationSound(
-      'content://settings/system/alarm_alert',
-    ),
+    // Bundled tone (res/raw/huddle_alarm.wav). The system alarm URI is
+    // silently replaced by the notification sound on many phones.
+    sound: PushNotificationService.alarmSound,
+    playSound: true,
     audioAttributesUsage: AudioAttributesUsage.alarm,
     enableVibration: true,
     vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800]),

@@ -47,7 +47,7 @@ class TaskDetailScreen extends ConsumerWidget {
     final me = ref.watch(currentUserProvider);
     final directory = ref.watch(teamById);
     // Members can work their own tasks; only a manager edits someone else's.
-    final canEdit = me.isManager || task.isAssignedTo(me.id);
+    final canEdit = me.isManager || task.isVisibleTo(me.id);
     final canCreateMeeting = me.isManager;
     final linkedMeetings = ref.watch(meetingsForTaskProvider(task.id));
     final config = ref.watch(orgConfigProvider);

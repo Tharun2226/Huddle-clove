@@ -14,7 +14,11 @@ class ReminderPicker extends StatelessWidget {
     required this.onChanged,
     required this.onStyleChanged,
     this.label = 'Remind me (this phone)',
+    this.showHint = true,
   });
+
+  /// Explain the selected style below the buttons. Off in dense lists.
+  final bool showHint;
 
   /// Minutes before; null means no reminder.
   final int? value;
@@ -89,13 +93,15 @@ class ReminderPicker extends StatelessWidget {
             showSelectedIcon: false,
             onSelectionChanged: (s) => onStyleChanged(s.first),
           ),
-          const SizedBox(height: Insets.xs),
-          Text(
-            _styleHints[style]!,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
+          if (showHint) ...[
+            const SizedBox(height: Insets.xs),
+            Text(
+              _styleHints[style]!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
         ],
       ],
     );

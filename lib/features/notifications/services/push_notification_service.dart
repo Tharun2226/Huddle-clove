@@ -70,6 +70,13 @@ class PushNotificationService {
   static const reminderChannelId = 'huddle_reminders';
   static const reminderChannelName = 'Reminders';
 
+  /// Alarm-style reminders. Bump the suffix whenever the sound changes —
+  /// Android never updates an existing channel's sound.
+  static const alarmChannelId = 'huddle_reminder_alarm_v2';
+  static const alarmChannelName = 'Reminder alarms';
+  static const _oldAlarmChannelIds = ['huddle_reminder_alarms'];
+  static const alarmSound = RawResourceAndroidNotificationSound('huddle_alarm');
+
   FlutterLocalNotificationsPlugin get local => _local;
 
   Future<bool> ensureInitialized() async {
@@ -127,6 +134,22 @@ class PushNotificationService {
         reminderChannelName,
         description: 'Task and meeting reminders you set on this phone',
         importance: Importance.high,
+      ),
+    );
+    for (final old in _oldAlarmChannelIds) {
+      await androidPlugin?.deleteNotificationChannel(channelId: old);
+    }
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        alarmChannelId,
+        alarmChannelName,
+        description: 'Alarm-style task and meeting reminders',
+        importance: Importance.max,
+        playSound: true,
+        sound: alarmSound,
+        // Alarm stream: plays at alarm volume, not notification volume.
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        enableVibration: true,
       ),
     );
 

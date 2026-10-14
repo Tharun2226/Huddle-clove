@@ -122,6 +122,12 @@ class Task {
 
   bool isAssignedTo(String userId) => allAssigneeIds.contains(userId);
 
+  /// Assigned to [userId], or a task they own that lists only outside
+  /// people (e.g. pasted schedules) — the API returns those to the owner.
+  bool isVisibleTo(String userId) =>
+      isAssignedTo(userId) ||
+      (allAssigneeIds.isEmpty && assigneeId == userId);
+
   bool get isDone => status.isDone;
 
   bool get isOverdue {

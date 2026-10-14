@@ -384,24 +384,30 @@ Future<void> _reviewAndImportRows(
     final importResult = await api.importTasks([
       for (final row in reviewed) row.toJson(),
     ]);
-    if (result.reminderMinutes != null && importResult.createdIds.isNotEmpty) {
-      await ref.read(reminderServiceProvider).setReminders(
-            ReminderKind.task,
-            importResult.createdIds,
-            result.reminderMinutes,
-            style: result.reminderStyle,
-          );
-    }
+    final idsByRow = createdIdsByRow(
+      rowCount: reviewed.length,
+      createdIds: importResult.createdIds,
+      failedRows: {for (final f in importResult.failed) f.row},
+    );
+    final choices = {
+      for (var i = 0; i < reviewed.length; i++)
+        if (idsByRow[i] != null && result.reminders[i].minutes != null)
+          idsByRow[i]!: result.reminders[i],
+    };
+    await ref
+        .read(reminderServiceProvider)
+        .setEach(ReminderKind.task, choices);
     ref.invalidate(tasksProvider);
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
     final created = importResult.createdCount;
     final failed = importResult.failedCount;
     if (failed == 0) {
+      final withReminder = choices.length;
       AppFeedback.success(
         messenger,
         'Imported $created task${created == 1 ? '' : 's'}'
-        '${result.reminderMinutes != null ? ' with reminders' : ''}',
+        '${withReminder > 0 ? ' · $withReminder with reminders' : ''}',
       );
     } else {
       final firstError = importResult.failed.isNotEmpty
@@ -419,10 +425,35 @@ Future<void> _reviewAndImportRows(
   }
 }
 
+@visibleForTesting
+Widget taskImportReviewSheetForTest(List<TaskImportRowPayload> rows) =>
+    _TaskImportReviewSheet(rows: rows, config: const OrgConfig());
+
+/// Lines up the import response with the submitted rows. The API returns
+/// created tasks in row order and failures by 1-based row number.
+@visibleForTesting
+List<String?> createdIdsByRow({
+  required int rowCount,
+  required List<String> createdIds,
+  required Set<int> failedRows,
+}) {
+  final out = <String?>[];
+  var next = 0;
+  for (var i = 0; i < rowCount; i++) {
+    if (failedRows.contains(i + 1) || next >= createdIds.length) {
+      out.add(null);
+    } else {
+      out.add(createdIds[next++]);
+    }
+  }
+  return out;
+}
+
+typedef _RowReminder = ({int? minutes, ReminderStyle style});
+
 typedef _ReviewedImport = ({
   List<TaskImportRowPayload> rows,
-  int? reminderMinutes,
-  ReminderStyle reminderStyle,
+  List<_RowReminder> reminders,
 });
 
 class _TaskImportReviewSheet extends StatefulWidget {
@@ -440,8 +471,23 @@ class _TaskImportReviewSheet extends StatefulWidget {
 
 class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
   late List<TaskImportRowPayload> _rows;
-  int? _reminderMinutes;
-  ReminderStyle _reminderStyle = ReminderStyle.notification;
+  late List<_RowReminder> _reminders;
+
+  /// "For all" control state; changing it overwrites every row.
+  int? _allMinutes;
+  ReminderStyle _allStyle = ReminderStyle.notification;
+
+  int get _reminderCount => _reminders.where((r) => r.minutes != null).length;
+
+  void _setAll({int? minutes, ReminderStyle? style, bool minutesChanged = false}) {
+    setState(() {
+      if (minutesChanged) _allMinutes = minutes;
+      if (style != null) _allStyle = style;
+      _reminders = [
+        for (final _ in _rows) (minutes: _allMinutes, style: _allStyle),
+      ];
+    });
+  }
 
   List<String> get _priorities {
     final names = widget.config.taskPriorities.map((p) => p.name).toList();
@@ -474,6 +520,9 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
           priority: _matchOrDefault(row.priority, _priorities, _defaultPriority),
           status: _matchOrDefault(row.status, _statuses, _defaultStatus),
         ),
+    ];
+    _reminders = [
+      for (final _ in _rows) (minutes: null, style: ReminderStyle.notification),
     ];
   }
 
@@ -519,16 +568,6 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
-                  if (ReminderService.isSupported) ...[
-                    const SizedBox(height: Insets.md),
-                    ReminderPicker(
-                      label: 'Remind me for all tasks (this phone)',
-                      value: _reminderMinutes,
-                      onChanged: (m) => setState(() => _reminderMinutes = m),
-                      style: _reminderStyle,
-                      onStyleChanged: (s) => setState(() => _reminderStyle = s),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -608,6 +647,27 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                               ),
                             ],
                           ),
+                          if (ReminderService.isSupported) ...[
+                            const SizedBox(height: Insets.sm),
+                            ReminderPicker(
+                              label: 'Remind me',
+                              showHint: false,
+                              value: _reminders[index].minutes,
+                              style: _reminders[index].style,
+                              onChanged: (m) => setState(() {
+                                _reminders[index] = (
+                                  minutes: m,
+                                  style: _reminders[index].style,
+                                );
+                              }),
+                              onStyleChanged: (s) => setState(() {
+                                _reminders[index] = (
+                                  minutes: _reminders[index].minutes,
+                                  style: s,
+                                );
+                              }),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -624,16 +684,34 @@ class _TaskImportReviewSheetState extends State<_TaskImportReviewSheet> {
                   Insets.screen,
                   Insets.md,
                 ),
-                child: FilledButton(
-                  onPressed: () => Navigator.pop<_ReviewedImport>(
-                    context,
-                    (
-                      rows: _rows,
-                      reminderMinutes: _reminderMinutes,
-                      reminderStyle: _reminderStyle,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Shortcut: sets every row; rows can still be changed
+                    // individually afterwards.
+                    if (ReminderService.isSupported) ...[
+                      ReminderPicker(
+                        label: 'Remind me for all tasks (this phone)',
+                        value: _allMinutes,
+                        onChanged: (m) =>
+                            _setAll(minutes: m, minutesChanged: true),
+                        style: _allStyle,
+                        onStyleChanged: (s) => _setAll(style: s),
+                      ),
+                      const SizedBox(height: Insets.md),
+                    ],
+                    FilledButton(
+                      onPressed: () => Navigator.pop<_ReviewedImport>(
+                        context,
+                        (rows: _rows, reminders: _reminders),
+                      ),
+                      child: Text(
+                        'Import ${_rows.length} task${_rows.length == 1 ? '' : 's'}'
+                        '${_reminderCount == 0 ? '' : ' · $_reminderCount with reminders'}',
+                      ),
                     ),
-                  ),
-                  child: Text('Import ${_rows.length} task${_rows.length == 1 ? '' : 's'}'),
+                  ],
                 ),
               ),
             ),

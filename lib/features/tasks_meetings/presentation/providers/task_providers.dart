@@ -25,7 +25,7 @@ final visibleTasksProvider = Provider<List<Task>>((ref) {
   final me = ref.watch(sessionControllerProvider);
   if (me == null) return const [];
   if (me.isAdmin || me.role == UserRole.manager) return tasks;
-  return tasks.where((t) => t.isAssignedTo(me.id)).toList();
+  return tasks.where((t) => t.isVisibleTo(me.id)).toList();
 });
 
 final taskByIdProvider = Provider.family<Task?, String>((ref, id) {
