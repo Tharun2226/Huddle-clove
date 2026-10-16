@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -10,6 +9,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../../shared/utils/formatters.dart';
 import '../../tasks_meetings/domain/meeting.dart';
 import '../../tasks_meetings/domain/task.dart';
+import 'native_alarm.dart';
 import 'push_notification_service.dart';
 
 enum ReminderKind { task, meeting }
@@ -19,8 +19,8 @@ enum ReminderStyle {
   /// Normal notification at the reminder time.
   notification('Notification'),
 
-  /// Alarm sound + full-screen alert at the reminder time, rings until
-  /// dismissed.
+  /// Alarm sound + full-screen alert at the reminder time, rings for 15 s
+  /// or until stopped.
   alarm('Alarm'),
 
   /// Notification at the reminder time, then an alarm when it starts / is due.
@@ -67,16 +67,6 @@ class ReminderService {
 
   static const _settingsKey = 'huddle_reminders_v1';
   static const _scheduledKey = 'huddle_reminders_scheduled_v1';
-
-  /// Alarm-style alerts get their own channel so they can use the alarm
-  /// audio stream (rings even when notification volume is muted).
-  /// Android freezes a channel's sound once created, so a sound change needs
-  /// a new id — see [PushNotificationService.alarmChannelId].
-  static const _alarmChannelId = PushNotificationService.alarmChannelId;
-  static const _alarmChannelName = PushNotificationService.alarmChannelName;
-
-  /// Android Notification.FLAG_INSISTENT — repeat sound until dismissed.
-  static const _flagInsistent = 4;
 
   /// Keep a missing item's reminder this long — a just-created task may not
   /// be in the list yet.
@@ -196,6 +186,7 @@ class ReminderService {
     for (final id in await _loadScheduled()) {
       await local.cancel(id: id);
     }
+    await NativeAlarm.cancelAll();
 
     final android = local.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -223,20 +214,33 @@ class ReminderService {
       final notificationId = _stableId(
         '$key|${fireAt.millisecondsSinceEpoch}|${alarm ? 'a' : 'n'}',
       );
+      final payload = jsonEncode({
+        'type': 'REMINDER',
+        'referenceId': id,
+        'referenceKind': kind.name,
+      });
+      if (alarm) {
+        // Real alarm (alarm stream, full-screen, power / volume to stop) —
+        // a notification sound gets downgraded while the phone is in use.
+        await NativeAlarm.schedule(
+          id: notificationId,
+          at: fireAt,
+          title: title,
+          body: body,
+          payload: payload,
+        );
+        return;
+      }
       await local.zonedSchedule(
         id: notificationId,
         scheduledDate: tz.TZDateTime.from(fireAt.toUtc(), tz.UTC),
-        notificationDetails: NotificationDetails(
-          android: alarm ? _alarmDetails : _notificationDetails,
+        notificationDetails: const NotificationDetails(
+          android: _notificationDetails,
         ),
         androidScheduleMode: mode,
         title: title,
         body: body,
-        payload: jsonEncode({
-          'type': 'REMINDER',
-          'referenceId': id,
-          'referenceKind': kind.name,
-        }),
+        payload: payload,
       );
       scheduled.add(notificationId);
     }
@@ -358,27 +362,6 @@ class ReminderService {
     priority: Priority.high,
     category: AndroidNotificationCategory.reminder,
     icon: '@mipmap/ic_launcher',
-  );
-
-  static final _alarmDetails = AndroidNotificationDetails(
-    _alarmChannelId,
-    _alarmChannelName,
-    channelDescription: 'Alarm-style task and meeting reminders',
-    importance: Importance.max,
-    priority: Priority.max,
-    category: AndroidNotificationCategory.alarm,
-    icon: '@mipmap/ic_launcher',
-    // Bundled tone (res/raw/huddle_alarm.wav). The system alarm URI is
-    // silently replaced by the notification sound on many phones.
-    sound: PushNotificationService.alarmSound,
-    playSound: true,
-    audioAttributesUsage: AudioAttributesUsage.alarm,
-    enableVibration: true,
-    vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800]),
-    fullScreenIntent: true,
-    additionalFlags: Int32List.fromList([_flagInsistent]),
-    // Stop ringing after 2 minutes if nobody responds.
-    timeoutAfter: 2 * 60 * 1000,
   );
 
   /// Start times after [after], covering repeats for the next two weeks.

@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../domain/app_notification.dart';
+import 'native_alarm.dart';
 
 /// Top-level background handler (must be a top-level or static function).
 @pragma('vm:entry-point')
@@ -70,12 +71,14 @@ class PushNotificationService {
   static const reminderChannelId = 'huddle_reminders';
   static const reminderChannelName = 'Reminders';
 
-  /// Alarm-style reminders. Bump the suffix whenever the sound changes —
-  /// Android never updates an existing channel's sound.
-  static const alarmChannelId = 'huddle_reminder_alarm_v2';
-  static const alarmChannelName = 'Reminder alarms';
-  static const _oldAlarmChannelIds = ['huddle_reminder_alarms'];
-  static const alarmSound = RawResourceAndroidNotificationSound('huddle_alarm');
+  /// Alarm-style reminders now ring through [NativeAlarm]; these channels
+  /// from earlier versions are removed.
+  static const _oldAlarmChannelIds = [
+    'huddle_reminder_alarms',
+    'huddle_reminder_alarm_v2',
+    'huddle_reminder_alarm_v3',
+    'huddle_reminder_alarm_v4',
+  ];
 
   FlutterLocalNotificationsPlugin get local => _local;
 
@@ -139,19 +142,17 @@ class PushNotificationService {
     for (final old in _oldAlarmChannelIds) {
       await androidPlugin?.deleteNotificationChannel(channelId: old);
     }
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        alarmChannelId,
-        alarmChannelName,
-        description: 'Alarm-style task and meeting reminders',
-        importance: Importance.max,
-        playSound: true,
-        sound: alarmSound,
-        // Alarm stream: plays at alarm volume, not notification volume.
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        enableVibration: true,
-      ),
-    );
+
+    // Taps on a ringing alarm (warm and cold start).
+    await NativeAlarm.listenForTaps((payload) {
+      final map = _payloadMap(payload);
+      if (map == null) return;
+      _dispatchTap(
+        type: NotificationType.fromApi(map['type'] as String?),
+        referenceId: map['referenceId'] as String?,
+        referenceKind: map['referenceKind'] as String?,
+      );
+    });
 
     // Cold start from a local notification tap.
     final launch = await _local.getNotificationAppLaunchDetails();

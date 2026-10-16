@@ -29,7 +29,7 @@ class ReminderPicker extends StatelessWidget {
 
   static const _styleHints = {
     ReminderStyle.notification: 'A normal notification.',
-    ReminderStyle.alarm: 'Alarm sound that keeps ringing until you dismiss it.',
+    ReminderStyle.alarm: 'Alarm sound that rings for 15 seconds, or until you tap Stop.',
     ReminderStyle.both: 'Notification at the reminder time, then an alarm '
         'when it starts.',
   };
